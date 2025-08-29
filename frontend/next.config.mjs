@@ -21,6 +21,15 @@ const nextConfig = {
         source: '/ws/:path*',
         destination: 'http://backend:8000/ws/:path*',
       },
+      // Proxy API docs from backend
+      {
+        source: '/docs',
+        destination: 'http://backend:8000/api/docs',
+      },
+      {
+        source: '/redoc',
+        destination: 'http://backend:8000/api/redoc',
+      },
     ];
   },
 };
