@@ -24,16 +24,13 @@ from src.db.session import get_db_session
 from src.exchange.manager import ExchangeManager
 
 app = FastAPI(
-    title=settings.api_title, 
+    title=settings.api_title,
     version=settings.api_version,
     docs_url='/api/docs',
     redoc_url='/api/redoc',
     openapi_url='/api/openapi.json'
 )
 attach_lifecycle(app)
-
-
-
 
 
 health_router = APIRouter()
