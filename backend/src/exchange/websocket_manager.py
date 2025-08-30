@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import UTC
-from typing import Any, Sequence
+from typing import Any
 
 from fastapi import WebSocket
 from sqlalchemy import func, select
@@ -28,7 +29,12 @@ class WebSocketManager:
         if websocket in self.connections:
             del self.connections[websocket]
 
-    def subscribe(self, websocket: WebSocket, symbols: Sequence[str], channels: Sequence[str]) -> None:
+    def subscribe(
+        self,
+        websocket: WebSocket,
+        symbols: Sequence[str],
+        channels: Sequence[str]
+    ) -> None:
         """Subscribe a connection to specific symbols and channels"""
         if websocket in self.connections:
             self.connections[websocket]["symbols"] = list(symbols)
