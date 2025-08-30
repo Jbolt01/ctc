@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC
-from typing import Any
+from typing import Any, Sequence
 
 from fastapi import WebSocket
 from sqlalchemy import func, select
@@ -12,35 +12,35 @@ from src.db.models import Symbol as SymbolModel
 
 
 class WebSocketManager:
-    def __init__(self):
+    def __init__(self) -> None:
         # Store active connections with their subscriptions
         self.connections: dict[WebSocket, dict[str, Any]] = {}
 
-    def connect(self, websocket: WebSocket):
+    def connect(self, websocket: WebSocket) -> None:
         """Register a new WebSocket connection"""
         self.connections[websocket] = {
             "symbols": [],
             "channels": []
         }
 
-    def disconnect(self, websocket: WebSocket):
+    def disconnect(self, websocket: WebSocket) -> None:
         """Remove a WebSocket connection"""
         if websocket in self.connections:
             del self.connections[websocket]
 
-    def subscribe(self, websocket: WebSocket, symbols: list[str], channels: list[str]):
+    def subscribe(self, websocket: WebSocket, symbols: Sequence[str], channels: Sequence[str]) -> None:
         """Subscribe a connection to specific symbols and channels"""
         if websocket in self.connections:
-            self.connections[websocket]["symbols"] = symbols
-            self.connections[websocket]["channels"] = channels
+            self.connections[websocket]["symbols"] = list(symbols)
+            self.connections[websocket]["channels"] = list(channels)
 
-    def unsubscribe(self, websocket: WebSocket):
+    def unsubscribe(self, websocket: WebSocket) -> None:
         """Unsubscribe a connection from all channels"""
         if websocket in self.connections:
             self.connections[websocket]["symbols"] = []
             self.connections[websocket]["channels"] = []
 
-    async def send_to_connection(self, websocket: WebSocket, data: dict):
+    async def send_to_connection(self, websocket: WebSocket, data: dict[str, Any]) -> bool:
         """Send data to a specific connection"""
         try:
             await websocket.send_json(data)
@@ -52,7 +52,7 @@ class WebSocketManager:
                 self.disconnect(websocket)
             return False
 
-    async def broadcast_to_symbol(self, symbol: str, channel: str, data: dict):
+    async def broadcast_to_symbol(self, symbol: str, channel: str, data: dict[str, Any]) -> None:
         """Broadcast data to all connections subscribed to a symbol and channel"""
         disconnected = []
 
@@ -68,7 +68,7 @@ class WebSocketManager:
         for websocket in disconnected:
             self.disconnect(websocket)
 
-    async def get_order_book(self, symbol: str, session: AsyncSession):
+    async def get_order_book(self, symbol: str, session: AsyncSession) -> dict[str, Any]:
         """Get real order book from database"""
         # Get symbol_id
         symbol_result = await session.scalar(
@@ -117,7 +117,7 @@ class WebSocketManager:
 
         return {"bids": bids, "asks": asks}
 
-    async def notify_order_book_update(self, symbol: str, session: AsyncSession):
+    async def notify_order_book_update(self, symbol: str, session: AsyncSession) -> None:
         """Notify all subscribers of order book changes"""
         from datetime import datetime
 
@@ -150,7 +150,7 @@ class WebSocketManager:
                 "timestamp": timestamp,
             })
 
-    async def notify_trade(self, symbol: str, price: float, quantity: int, timestamp: str):
+    async def notify_trade(self, symbol: str, price: float, quantity: int, timestamp: str) -> None:
         """Notify all subscribers of a new trade"""
         await self.broadcast_to_symbol(symbol, "trades", {
             "type": "trade",
