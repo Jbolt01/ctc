@@ -8,14 +8,14 @@ import anyio._backends._asyncio  # noqa: F401
 from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.routing import APIRouter
 from pydantic import BaseModel, Field
-from typing import Optional
-from sqlalchemy import func, select, update
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.config import settings
 from src.app.deps import RequireAPIKey
 from src.app.startup import attach_lifecycle
 from src.core.orders import OrderService
+from src.db.models import APIKey as APIKeyModel
 from src.db.models import MarketData as MarketDataModel
 from src.db.models import Order as OrderModel
 from src.db.models import Position as PositionModel
@@ -96,7 +96,7 @@ async def place_order(
     session: DbSession,
 ) -> PlaceOrderResponse:
     from src.exchange.websocket_manager import websocket_manager
-    
+
     team = await _get_team_by_id(session, api_key["team_id"])
     service = OrderService(session)
     db_order = await service.place_order(
@@ -111,10 +111,10 @@ async def place_order(
     await _exchange.load_open_orders(session)
     trades = await _exchange.place_and_match(session, db_order=db_order, symbol_code=payload.symbol)
     await session.commit()
-    
+
     # Notify WebSocket clients of order book changes
     await websocket_manager.notify_order_book_update(payload.symbol, session)
-    
+
     # Notify WebSocket clients of any trades that occurred
     for trade in trades:
         await websocket_manager.notify_trade(
@@ -123,7 +123,7 @@ async def place_order(
             trade.quantity,
             trade.executed_at.isoformat()
         )
-    
+
     return PlaceOrderResponse(
         order_id=str(db_order.id),
         status=db_order.status,
@@ -134,16 +134,16 @@ async def place_order(
 @api_router.delete("/orders/{order_id}", response_model=dict[str, str])
 async def cancel_order(order_id: str, api_key: RequireAPIKey, session: DbSession) -> dict[str, str]:
     from src.exchange.websocket_manager import websocket_manager
-    
+
     # First get the order to get the symbol for WebSocket notification
     order = await session.get(OrderModel, order_id)
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-    
+
     # Get symbol name for notification
     symbol_result = await session.get(SymbolModel, order.symbol_id)
     symbol_name = symbol_result.symbol if symbol_result else None
-    
+
     # Update order status to cancelled
     res = await session.execute(
         update(OrderModel)
@@ -154,13 +154,13 @@ async def cancel_order(order_id: str, api_key: RequireAPIKey, session: DbSession
     row = res.first()
     if not row:
         raise HTTPException(status_code=404, detail="Order not found")
-    
+
     await session.commit()
-    
+
     # Notify WebSocket clients of order book changes
     if symbol_name:
         await websocket_manager.notify_order_book_update(symbol_name, session)
-    
+
     return {"order_id": order_id, "status": "cancelled"}
 
 
@@ -266,18 +266,19 @@ class JoinTeamRequest(BaseModel):
 @api_router.post("/auth/register", response_model=LoginResponse)
 async def register(request: LoginRequest, session: DbSession) -> LoginResponse:
     """Register a new user and create default team"""
-    import secrets
     import hashlib
+    import secrets
+
     from src.db.models import APIKey as APIKeyModel
-    
+
     # Check if user already exists
     existing_user = await session.scalar(
         select(UserModel).where(UserModel.openid_sub == request.openid_sub)
     )
-    
+
     if existing_user:
         raise HTTPException(status_code=400, detail="User already exists")
-    
+
     # Create new user
     user = UserModel(
         email=request.email,
@@ -286,12 +287,12 @@ async def register(request: LoginRequest, session: DbSession) -> LoginResponse:
     )
     session.add(user)
     await session.flush()  # Get the user ID
-    
+
     # Create a default team for the user
     team = TeamModel(name=f"{request.name}'s Team")
     session.add(team)
     await session.flush()
-    
+
     # Add user to the team as admin
     team_member = TeamMemberModel(
         team_id=team.id,
@@ -299,11 +300,11 @@ async def register(request: LoginRequest, session: DbSession) -> LoginResponse:
         role="admin"
     )
     session.add(team_member)
-    
+
     # Create API key for the team
     api_key_value = secrets.token_urlsafe(32)
     api_key_hash = hashlib.sha256(api_key_value.encode()).hexdigest()
-    
+
     api_key = APIKeyModel(
         key_hash=api_key_hash,
         team_id=team.id,
@@ -311,16 +312,16 @@ async def register(request: LoginRequest, session: DbSession) -> LoginResponse:
         is_admin=True
     )
     session.add(api_key)
-    
+
     await session.commit()
-    
+
     # Get user's teams
     teams = [TeamResponse(
         id=str(team.id),
         name=team.name,
         role="admin"
     )]
-    
+
     return LoginResponse(
         user=UserResponse(
             id=str(user.id),
@@ -336,23 +337,22 @@ async def register(request: LoginRequest, session: DbSession) -> LoginResponse:
 @api_router.post("/auth/login", response_model=LoginResponse)
 async def login(request: LoginRequest, session: DbSession) -> LoginResponse:
     """Login existing user and return user info with teams and API key"""
-    import hashlib
     from src.db.models import APIKey as APIKeyModel
-    
+
     # Find existing user
     user = await session.scalar(
         select(UserModel).where(UserModel.openid_sub == request.openid_sub)
     )
-    
+
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
-    
+
     # Update user info if needed
     if user.email != request.email or user.name != request.name:
         user.email = request.email
         user.name = request.name
         await session.commit()
-    
+
     # Get user's teams and API key
     teams_query = select(
         TeamModel.id,
@@ -363,17 +363,17 @@ async def login(request: LoginRequest, session: DbSession) -> LoginResponse:
      .join(APIKeyModel, TeamModel.id == APIKeyModel.team_id)\
      .where(TeamMemberModel.user_id == user.id)\
      .limit(1)  # For simplicity, get first team's API key
-    
+
     team_result = await session.execute(teams_query)
     team_row = team_result.first()
-    
+
     if not team_row:
         raise HTTPException(status_code=404, detail="No teams found for user")
-    
+
     # In a real system, you'd have a way to retrieve the original API key
     # For now, we'll use a deterministic approach based on the hash
     api_key_value = f"key_{team_row.key_hash[:16]}"
-    
+
     # Get all user's teams
     all_teams_query = select(
         TeamModel.id,
@@ -381,7 +381,7 @@ async def login(request: LoginRequest, session: DbSession) -> LoginResponse:
         TeamMemberModel.role
     ).join(TeamMemberModel, TeamModel.id == TeamMemberModel.team_id)\
      .where(TeamMemberModel.user_id == user.id)
-    
+
     teams_result = await session.execute(all_teams_query)
     teams = [
         TeamResponse(
@@ -391,7 +391,7 @@ async def login(request: LoginRequest, session: DbSession) -> LoginResponse:
         )
         for row in teams_result.fetchall()
     ]
-    
+
     return LoginResponse(
         user=UserResponse(
             id=str(user.id),
@@ -405,22 +405,29 @@ async def login(request: LoginRequest, session: DbSession) -> LoginResponse:
 
 
 @api_router.post("/auth/teams", response_model=TeamResponse)
-async def create_team(request: CreateTeamRequest, api_key: RequireAPIKey, session: DbSession) -> TeamResponse:
+async def create_team(
+    request: CreateTeamRequest,
+    api_key: RequireAPIKey,
+    session: DbSession
+) -> TeamResponse:
     """Create a new team"""
     # Get user from API key
-    user_query = select(UserModel).join(TeamMemberModel, UserModel.id == TeamMemberModel.user_id)\
-                                  .join(APIKeyModel, TeamMemberModel.team_id == APIKeyModel.team_id)\
-                                  .where(APIKeyModel.key_hash == api_key["key_hash"])
-    
+    user_query = (
+        select(UserModel)
+        .join(TeamMemberModel, UserModel.id == TeamMemberModel.user_id)
+        .join(APIKeyModel, TeamMemberModel.team_id == APIKeyModel.team_id)
+        .where(APIKeyModel.key_hash == api_key["key_hash"])
+    )
+
     user = await session.scalar(user_query)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
+
     # Create new team
     team = TeamModel(name=request.name)
     session.add(team)
     await session.flush()
-    
+
     # Add user as admin
     team_member = TeamMemberModel(
         team_id=team.id,
@@ -429,7 +436,7 @@ async def create_team(request: CreateTeamRequest, api_key: RequireAPIKey, sessio
     )
     session.add(team_member)
     await session.commit()
-    
+
     return TeamResponse(
         id=str(team.id),
         name=team.name,
@@ -441,7 +448,7 @@ async def create_team(request: CreateTeamRequest, api_key: RequireAPIKey, sessio
 async def get_positions(api_key: RequireAPIKey, session: DbSession) -> PositionsResponse:
     """Get real positions from the positions table"""
     team = await _get_team_by_id(session, api_key["team_id"])
-    
+
     # Get positions from the positions table
     positions_query = select(
         PositionModel.quantity,
@@ -455,16 +462,16 @@ async def get_positions(api_key: RequireAPIKey, session: DbSession) -> Positions
         PositionModel.team_id == team.id,
         PositionModel.quantity != 0  # Only show non-zero positions
     )
-    
+
     position_rows = await session.execute(positions_query)
     positions: list[Position] = []
-    
+
     for row in position_rows:
         symbol = row.symbol
         quantity = row.quantity
         avg_price = float(row.average_price) if row.average_price else None
         realized_pnl = float(row.realized_pnl) if row.realized_pnl else 0.0
-        
+
         # Get current market price from latest trade
         current_price = None
         latest_trade = await session.scalar(
@@ -475,12 +482,12 @@ async def get_positions(api_key: RequireAPIKey, session: DbSession) -> Positions
         )
         if latest_trade:
             current_price = float(latest_trade)
-        
+
         # Calculate unrealized P&L
         unrealized_pnl = None
         if current_price is not None and avg_price is not None and quantity != 0:
             unrealized_pnl = (current_price - avg_price) * quantity
-        
+
         positions.append(
             Position(
                 symbol=symbol,
@@ -491,7 +498,7 @@ async def get_positions(api_key: RequireAPIKey, session: DbSession) -> Positions
                 realized_pnl=realized_pnl,
             )
         )
-    
+
     return PositionsResponse(positions=positions)
 
 
@@ -519,13 +526,13 @@ async def get_trades(
     # Get trades that involve this team (either as buyer or seller)
     # We need to check both buyer and seller orders to see if this team is involved
     team = await _get_team_by_id(session, api_key["team_id"])
-    
+
     # Subquery to get buyer orders for this team
     buyer_orders = select(OrderModel.id).where(OrderModel.team_id == team.id).subquery()
-    
-    # Subquery to get seller orders for this team  
+
+    # Subquery to get seller orders for this team
     seller_orders = select(OrderModel.id).where(OrderModel.team_id == team.id).subquery()
-    
+
     stmt = select(
         TradeModel.id,
         SymbolModel.symbol,
@@ -537,13 +544,13 @@ async def get_trades(
          (TradeModel.buyer_order_id.in_(select(buyer_orders.c.id))) |
          (TradeModel.seller_order_id.in_(select(seller_orders.c.id)))
      )
-    
+
     if symbol:
         stmt = stmt.where(SymbolModel.symbol == symbol)
-    
+
     # Order by most recent first
     stmt = stmt.order_by(TradeModel.executed_at.desc())
-    
+
     rows = (await session.execute(stmt)).all()
     trades = [
         TradeRecord(
@@ -574,13 +581,13 @@ async def get_market_trades(
         TradeModel.price,
         TradeModel.executed_at,
     ).join(SymbolModel, SymbolModel.id == TradeModel.symbol_id)
-    
+
     if symbol:
         stmt = stmt.where(SymbolModel.symbol == symbol)
-    
+
     # Order by most recent first
     stmt = stmt.order_by(TradeModel.executed_at.desc())
-    
+
     rows = (await session.execute(stmt)).all()
     trades = [
         TradeRecord(
@@ -846,7 +853,7 @@ class TeamIn(BaseModel):
 
 
 @admin_router.post("/teams")
-async def create_team(payload: TeamIn, session: DbSession) -> dict[str, str]:
+async def create_team_admin(payload: TeamIn, session: DbSession) -> dict[str, str]:
     if await session.scalar(select(TeamModel).where(TeamModel.name == payload.name)):
         raise HTTPException(status_code=409, detail="Team exists")
     team = TeamModel(name=payload.name)
@@ -950,32 +957,34 @@ class SubscriptionMessage(BaseModel):
 async def ws_send_json(ws: WebSocket, data: dict[str, Any]) -> None:
     try:
         await ws.send_json(data)
-    except Exception:
+    except Exception as err:
         # Connection is closed, ignore the error
-        raise WebSocketDisconnect()
+        raise WebSocketDisconnect() from err
 
 
 @app.websocket("/ws/v1/market-data")
 async def market_data_ws(ws: WebSocket) -> None:
     import asyncio
+
     from sqlalchemy import text
+
     from src.exchange.websocket_manager import websocket_manager
-    
+
     await ws.accept()
     print("WebSocket connection accepted")
-    
+
     try:
         # Wait for subscription message
         data = await ws.receive_json()
         msg = SubscriptionMessage.model_validate(data)
-        
+
         if msg.action == "subscribe":
             print(f"Client subscribed to {msg.symbols} for channels {msg.channels}")
-            
+
             # Register with WebSocket manager
             websocket_manager.connect(ws)
             websocket_manager.subscribe(ws, msg.symbols, msg.channels)
-            
+
             # Send acknowledgment
             await ws.send_json({
                 "type": "subscription_ack",
@@ -983,7 +992,7 @@ async def market_data_ws(ws: WebSocket) -> None:
                 "channels": msg.channels,
                 "timestamp": datetime.now(tz=UTC).isoformat()
             })
-            
+
             # Send initial data for each requested symbol
             for symbol in msg.symbols:
                 async for session in get_db_session():
@@ -993,7 +1002,7 @@ async def market_data_ws(ws: WebSocket) -> None:
                             order_book = await websocket_manager.get_order_book(symbol, session)
                             bids = order_book["bids"]
                             asks = order_book["asks"]
-                            
+
                             await ws.send_json({
                                 "type": "orderbook",
                                 "symbol": symbol,
@@ -1001,7 +1010,7 @@ async def market_data_ws(ws: WebSocket) -> None:
                                 "asks": asks,
                                 "timestamp": datetime.now(tz=UTC).isoformat()
                             })
-                            
+
                             # Send current quote if requested
                             if "quotes" in msg.channels and (bids or asks):
                                 await ws.send_json({
@@ -1013,21 +1022,21 @@ async def market_data_ws(ws: WebSocket) -> None:
                                     "ask_size": asks[0]["quantity"] if asks else 0,
                                     "timestamp": datetime.now(tz=UTC).isoformat()
                                 })
-                        
+
                         # Send recent trades if requested
                         if "trades" in msg.channels:
                             recent_trades = await session.execute(
                                 text("""
-                                    SELECT t.price, t.quantity, t.executed_at 
-                                    FROM trades t 
-                                    JOIN symbols s ON t.symbol_id = s.id 
-                                    WHERE s.symbol = :symbol 
-                                    ORDER BY t.executed_at DESC 
+                                    SELECT t.price, t.quantity, t.executed_at
+                                    FROM trades t
+                                    JOIN symbols s ON t.symbol_id = s.id
+                                    WHERE s.symbol = :symbol
+                                    ORDER BY t.executed_at DESC
                                     LIMIT 1
                                 """),
                                 {"symbol": symbol}
                             )
-                            
+
                             for trade in recent_trades.fetchall():
                                 await ws.send_json({
                                     "type": "trade",
@@ -1036,30 +1045,30 @@ async def market_data_ws(ws: WebSocket) -> None:
                                     "quantity": float(trade.quantity),
                                     "timestamp": trade.executed_at.isoformat()
                                 })
-                        
+
                     except Exception as e:
                         print(f"Error sending initial data for {symbol}: {e}")
                     finally:
                         await session.close()
-            
+
             # Keep connection alive with periodic heartbeats
             try:
                 while True:
                     # Send heartbeat every 30 seconds
                     await asyncio.sleep(30)
-                    
+
                     # Check if connection is still active
                     if ws.client_state.name != "CONNECTED":
                         print("WebSocket connection no longer active, stopping heartbeat")
                         break
-                        
+
                     await ws.send_json({
                         "type": "heartbeat",
                         "timestamp": datetime.now(tz=UTC).isoformat()
                     })
             except Exception as e:
                 print(f"Heartbeat loop ended: {e}")
-                    
+
     except WebSocketDisconnect:
         print("WebSocket client disconnected normally")
         websocket_manager.disconnect(ws)
