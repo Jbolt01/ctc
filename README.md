@@ -1,6 +1,26 @@
 ## Cornell Trading Competition Platform
 
-Monorepo scaffolding for a mock trading platform with a FastAPI backend and Next.js frontend.
+A professional trading platform with real-time market data, team-based trading, and comprehensive order management. Built with FastAPI backend and Next.js frontend.
+
+## Features
+
+- 🏪 **Real-time Trading** - Live order book, market data, and trade execution
+- 👥 **Team-based Trading** - Multi-user teams with shared orders and positions
+- 🔐 **Authentication** - Secure user registration and login system
+- 📊 **Professional UI** - Dark theme with advanced trading interface
+- 🔌 **WebSocket Integration** - Real-time market data updates
+- 🐳 **Production Ready** - Docker-based deployment with CI/CD
+
+## Production Deployment
+
+For production deployment instructions, see [DEPLOYMENT.md](./DEPLOYMENT.md).
+
+**Quick Deploy:**
+```bash
+cp env.prod.example .env.prod
+# Edit .env.prod with your settings
+./deploy.sh
+```
 
 ### Quick start (local, without Docker)
 
