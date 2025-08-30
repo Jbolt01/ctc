@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import Order as OrderModel
-from src.db.models import Position
+from src.db.models import Position as PositionModel
 from src.db.models import Symbol as SymbolModel
 from src.db.models import Trade as TradeModel
 from src.exchange.engine import MatchingEngine, SimpleOrder, SimpleTrade
@@ -143,9 +143,9 @@ class ExchangeManager:
         qty: int,
         price: float,
     ) -> None:
-        pos = await session.get(Position, {"team_id": team_id, "symbol_id": symbol_id})
+        pos = await session.get(PositionModel, {"team_id": team_id, "symbol_id": symbol_id})
         if pos is None:
-            pos = Position(
+            pos = PositionModel(
                 team_id=team_id,
                 symbol_id=symbol_id,
                 quantity=0,

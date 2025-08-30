@@ -1,10 +1,15 @@
 const API_BASE = '';
 
-const API_KEY = process.env.NEXT_PUBLIC_API_KEY ?? 'test';
+const getApiKey = () => {
+  if (typeof window !== 'undefined') {
+    return localStorage.getItem('apiKey') || 'test-key';
+  }
+  return process.env.NEXT_PUBLIC_API_KEY ?? 'test-key';
+};
 
 async function apiGet<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: { 'X-API-Key': API_KEY },
+    headers: { 'X-API-Key': getApiKey() },
     cache: 'no-store',
   });
   if (!res.ok) throw new Error(`GET ${path} failed`);
@@ -14,7 +19,7 @@ async function apiGet<T>(path: string): Promise<T> {
 async function apiPost<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-API-Key': API_KEY },
+    headers: { 'Content-Type': 'application/json', 'X-API-Key': getApiKey() },
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`POST ${path} failed`);
@@ -71,6 +76,45 @@ export type PlaceOrderRequest = {
 export type PlaceOrderResponse = { order_id: string; status: string; created_at: string };
 export function placeOrder(body: PlaceOrderRequest) {
   return apiPost<PlaceOrderResponse>(`/api/v1/orders`, body);
+}
+
+async function apiDelete<T>(path: string): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'DELETE',
+    headers: { 'X-API-Key': getApiKey() },
+  });
+  if (!res.ok) throw new Error(`DELETE ${path} failed`);
+  return res.json();
+}
+
+export function cancelOrder(orderId: string) {
+  return apiDelete<{ order_id: string; status: string }>(`/api/v1/orders/${orderId}`);
+}
+
+export type TradeRecord = {
+  trade_id: string;
+  symbol: string;
+  quantity: number;
+  price: number;
+  executed_at: string;
+};
+export type TradesResponse = { trades: TradeRecord[] };
+export function fetchTrades(symbol?: string) {
+  const q = symbol ? `?symbol=${encodeURIComponent(symbol)}` : '';
+  return apiGet<TradesResponse>(`/api/v1/trades${q}`);
+}
+
+export function fetchMarketTrades(symbol?: string) {
+  const q = symbol ? `?symbol=${encodeURIComponent(symbol)}` : '';
+  return apiGet<TradesResponse>(`/api/v1/trades/market${q}`);
+}
+
+export function fetchAllOrders(status?: string, symbol?: string) {
+  const params = new URLSearchParams();
+  if (status) params.append('status', status);
+  if (symbol) params.append('symbol', symbol);
+  const q = params.toString() ? `?${params.toString()}` : '';
+  return apiGet<OrdersResponse>(`/api/v1/orders${q}`);
 }
 
 // Admin
