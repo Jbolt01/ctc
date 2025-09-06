@@ -178,9 +178,6 @@ export default function EquitiesTradingPage() {
                 TRADING TERMINAL
               </span>
             </h1>
-            <p className="mt-2 text-gray-400 font-mono tracking-wide">
-              REAL-TIME MARKET DATA • ADVANCED ORDER MANAGEMENT • LIVE EXECUTION
-            </p>
             {userInfo && userInfo.teams.length > 0 && (
               <div className="mt-3 flex items-center space-x-4">
                 <div className="text-sm text-cyan-400 font-mono">
