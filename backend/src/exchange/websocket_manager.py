@@ -91,7 +91,7 @@ class WebSocketManager:
             .where(
                 OrderModel.symbol_id == symbol_result,
                 OrderModel.side == "buy",
-                OrderModel.status.in_(["pending", "partially_filled"]),
+                OrderModel.status.in_(["pending", "partial"]),
                 OrderModel.price.is_not(None)
             )\
             .group_by(OrderModel.price)\
@@ -110,7 +110,7 @@ class WebSocketManager:
             .where(
                 OrderModel.symbol_id == symbol_result,
                 OrderModel.side == "sell",
-                OrderModel.status.in_(["pending", "partially_filled"]),
+                OrderModel.status.in_(["pending", "partial"]),
                 OrderModel.price.is_not(None)
             )\
             .group_by(OrderModel.price)\
