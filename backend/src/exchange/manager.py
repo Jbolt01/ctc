@@ -11,7 +11,7 @@ from src.db.models import Order as OrderModel
 from src.db.models import Position as PositionModel
 from src.db.models import Symbol as SymbolModel
 from src.db.models import Trade as TradeModel
-from src.exchange.engine import MatchingEngine, SimpleOrder, SimpleTrade
+from src.exchange.engine import MatchingEngine, SimpleCancel, SimpleOrder, SimpleTrade
 
 
 @dataclass
@@ -43,6 +43,8 @@ class ExchangeManager:
                     OrderModel.id,
                     SymbolModel.symbol,
                     OrderModel.side,
+                    OrderModel.team_id,
+                    OrderModel.order_type,
                     OrderModel.quantity,
                     OrderModel.filled_quantity,
                     OrderModel.price,
@@ -56,11 +58,15 @@ class ExchangeManager:
             remaining = r.quantity - r.filled_quantity
             if remaining <= 0:
                 continue
+            # Do not load market orders into the book; they should not rest
+            if r.order_type == "market" or r.price is None:
+                continue
             order = SimpleOrder(
                 order_id=str(r.id),
                 side=r.side,
                 quantity=remaining,
                 price=float(r.price) if r.price is not None else None,
+                team_id=str(r.team_id),
             )
             self._get_engine(r.symbol).add_order(order)
 
@@ -79,8 +85,11 @@ class ExchangeManager:
             side=db_order.side,
             quantity=remaining_qty,
             price=float(db_order.price) if db_order.price is not None else None,
+            team_id=str(db_order.team_id),
         )
-        simple_trades: list[SimpleTrade] = engine.add_order(new_order)
+        simple_trades: list[SimpleTrade]
+        simple_cancels: list[SimpleCancel]
+        simple_trades, simple_cancels = engine.add_order(new_order)
         trades: list[TradeModel] = []
         for t in simple_trades:
             buyer_id = uuid.UUID(t.buyer_order_id)
@@ -128,7 +137,35 @@ class ExchangeManager:
                 price=t.price,
             )
 
+        # Apply cancellations (self-trade prevention) to resting orders
+        for c in simple_cancels:
+            oid = uuid.UUID(c.order_id)
+            o = await session.get(OrderModel, oid)
+            if not o:
+                continue
+            # Use filled_quantity to reduce remaining open size; no trade is recorded
+            o.filled_quantity += c.quantity
+            if o.filled_quantity >= o.quantity:
+                o.status = "cancelled"
+            else:
+                o.status = "partial"
+            o.updated_at = datetime.utcnow()
+            session.add(o)
+
         # Update the just-placed order status to reflect matches done
+        # For market orders, cancel any unfilled remainder (do not rest)
+        if db_order.order_type == "market":
+            # Refresh db_order to ensure latest filled_quantity from any trades above
+            await session.flush()
+            await session.refresh(db_order)
+            if db_order.filled_quantity >= db_order.quantity:
+                db_order.status = "filled"
+            else:
+                # Leave filled_quantity as-is; mark as cancelled to indicate done
+                db_order.status = "cancelled"
+                db_order.updated_at = datetime.utcnow()
+                session.add(db_order)
+
         await session.flush()
         await session.refresh(db_order)
         return trades
@@ -201,4 +238,3 @@ class ExchangeManager:
                     # establish short with remaining
                     pos.average_price = price
                     pos.quantity = -remaining
-
