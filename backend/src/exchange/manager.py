@@ -37,6 +37,11 @@ class ExchangeManager:
         return engine.get_orderbook_levels(depth)
 
     async def load_open_orders(self, session: AsyncSession) -> None:
+        # Rebuild in-memory books from the database to avoid duplicates
+        # and stale orders persisting across requests.
+        for state in self._books.values():
+            state.engine.reset()
+
         rows = (
             await session.execute(
                 select(
