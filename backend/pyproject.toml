@@ -4,6 +4,8 @@ version = "0.1.0"
 description = "Cornell Trading Competition Platform Backend"
 requires-python = ">=3.12"
 dependencies = [
+  "aiosqlite>=0.19.0",
+  "greenlet>=3.0.3",
   "fastapi>=0.111.0",
   "uvicorn[standard]>=0.30.0",
   "pydantic>=2.6.0",
@@ -43,4 +45,3 @@ python_version = "3.12"
 strict = true
 warn_unused_configs = true
 ignore_missing_imports = true
-

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid as _uuid
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
@@ -26,6 +27,8 @@ from src.db.models import Trade as TradeModel
 from src.db.models import User as UserModel
 from src.db.session import get_db_session
 from src.exchange.manager import ExchangeManager
+
+_Any = Any
 
 app = FastAPI(
     title=settings.api_title,
@@ -83,7 +86,12 @@ DbSession = Annotated[AsyncSession, Depends(get_db_session)]
 
 async def _get_team_by_id(session: AsyncSession, team_id: str) -> TeamModel:
     """Get team by ID - assumes team exists (should be created during registration)"""
-    team = await session.get(TeamModel, team_id)
+    team_pk: _Any
+    try:
+        team_pk = _uuid.UUID(str(team_id))
+    except Exception:
+        team_pk = team_id  # fall back if already proper type
+    team = await session.get(TeamModel, team_pk)
     if not team:
         raise HTTPException(status_code=404, detail=f"Team {team_id} not found")
     return team
@@ -136,7 +144,13 @@ async def cancel_order(order_id: str, api_key: RequireAPIKey, session: DbSession
     from src.exchange.websocket_manager import websocket_manager
 
     # First get the order to get the symbol for WebSocket notification
-    order = await session.get(OrderModel, order_id)
+
+    _oid: _Any
+    try:
+        _oid = _uuid.UUID(str(order_id))
+    except Exception:
+        _oid = order_id
+    order = await session.get(OrderModel, _oid)
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
 
@@ -147,7 +161,7 @@ async def cancel_order(order_id: str, api_key: RequireAPIKey, session: DbSession
     # Update order status to cancelled
     res = await session.execute(
         update(OrderModel)
-        .where(OrderModel.id == order_id)
+        .where(OrderModel.id == _oid)
         .values(status="cancelled", updated_at=datetime.utcnow())
         .returning(OrderModel.id)
     )
@@ -1077,4 +1091,3 @@ async def market_data_ws(ws: WebSocket) -> None:
         websocket_manager.disconnect(ws)
     finally:
         print("WebSocket connection closed")
-

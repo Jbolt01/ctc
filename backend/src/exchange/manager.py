@@ -82,8 +82,46 @@ class ExchangeManager:
         db_order: OrderModel,
         symbol_code: str,
     ) -> list[TradeModel]:
-        # Run matching against in-memory book and apply results to DB
+        # Rebuild the book for this symbol excluding the incoming order,
+        # then run matching and apply results to DB.
         engine = self._get_engine(symbol_code)
+        engine.reset()
+
+        # Load all open, non-market orders for this symbol except the incoming one
+        rows = (
+            await session.execute(
+                select(
+                    OrderModel.id,
+                    OrderModel.side,
+                    OrderModel.team_id,
+                    OrderModel.quantity,
+                    OrderModel.filled_quantity,
+                    OrderModel.price,
+                    OrderModel.order_type,
+                )
+                .join(SymbolModel, SymbolModel.id == OrderModel.symbol_id)
+                .where(
+                    SymbolModel.symbol == symbol_code,
+                    OrderModel.status.in_(["pending", "partial"]),
+                    OrderModel.id != db_order.id,
+                )
+            )
+        ).all()
+        for r in rows:
+            if r.order_type == "market" or r.price is None:
+                continue
+            remaining = r.quantity - r.filled_quantity
+            if remaining <= 0:
+                continue
+            engine.add_order(
+                SimpleOrder(
+                    order_id=str(r.id),
+                    side=r.side,
+                    quantity=remaining,
+                    price=float(r.price),
+                    team_id=str(r.team_id),
+                )
+            )
         remaining_qty = db_order.quantity - db_order.filled_quantity
         new_order = SimpleOrder(
             order_id=str(db_order.id),
