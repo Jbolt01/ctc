@@ -176,42 +176,42 @@ jobs:
         run: |
           set -euo pipefail
           SSH_TARGET="${DEPLOY_USER}@${DEPLOY_HOST}"
-          ssh -o StrictHostKeyChecking=yes "$SSH_TARGET" "bash -lc '
-            set -euo pipefail
-            export APP_DIR="${DEPLOY_APP_DIR}"
-            export GHCR_USERNAME="${GHCR_USERNAME:-}"
-            export GHCR_TOKEN="${GHCR_TOKEN:-}"
+          ssh -o StrictHostKeyChecking=yes "$SSH_TARGET" bash -s << EOF
+          set -euo pipefail
+          APP_DIR="${DEPLOY_APP_DIR}"
+          GHCR_USERNAME="${GHCR_USERNAME:-}"
+          GHCR_TOKEN="${GHCR_TOKEN:-}"
 
-            echo "📋 Checking Docker..."
-            if ! command -v docker >/dev/null 2>&1; then
-              echo "🐳 Installing Docker..."
-              curl -fsSL https://get.docker.com -o get-docker.sh && sh get-docker.sh && rm get-docker.sh
+          echo "📋 Checking Docker..."
+          if ! command -v docker >/dev/null 2>&1; then
+            echo "🐳 Installing Docker..."
+            curl -fsSL https://get.docker.com -o get-docker.sh && sh get-docker.sh && rm get-docker.sh
+          fi
+
+          echo "📋 Checking Docker Compose..."
+          DC="docker compose"
+          if ! docker compose version >/dev/null 2>&1; then
+            if command -v docker-compose >/dev/null 2>&1; then
+              DC="docker-compose"
+            else
+              echo "🐙 Installing docker-compose binary..."
+              curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-\$(uname -s)-\$(uname -m)" -o /usr/local/bin/docker-compose
+              chmod +x /usr/local/bin/docker-compose
+              DC="docker-compose"
             fi
+          fi
 
-            echo "📋 Checking Docker Compose..."
-            DC="docker compose"
-            if ! docker compose version >/dev/null 2>&1; then
-              if command -v docker-compose >/dev/null 2>&1; then
-                DC="docker-compose"
-              else
-                echo "🐙 Installing docker-compose binary..."
-                curl -L \"https://github.com/docker/compose/releases/latest/download/docker-compose-\$(uname -s)-\$(uname -m)\" -o /usr/local/bin/docker-compose
-                chmod +x /usr/local/bin/docker-compose
-                DC="docker-compose"
-              fi
-            fi
+          echo "📦 Logging in to GHCR (if credentials provided)..."
+          if [ -n "\$GHCR_USERNAME" ] && [ -n "\$GHCR_TOKEN" ]; then
+            echo "\$GHCR_TOKEN" | docker login ghcr.io -u "\$GHCR_USERNAME" --password-stdin || true
+          fi
 
-            echo "📦 Logging in to GHCR (if credentials provided)..."
-            if [ -n \"$GHCR_USERNAME\" ] && [ -n \"$GHCR_TOKEN\" ]; then
-              echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin || true
-            fi
-
-            echo "🚀 Deploying with $DC ..."
-            cd "$APP_DIR"
-            # Pull latest images, restart stack
-            $DC -f docker-compose.prod.yml --env-file .env.prod pull
-            $DC -f docker-compose.prod.yml --env-file .env.prod down || true
-            $DC -f docker-compose.prod.yml --env-file .env.prod up -d
-            $DC -f docker-compose.prod.yml --env-file .env.prod ps
-            $DC -f docker-compose.prod.yml --env-file .env.prod logs --tail=20
-          '"
+          echo "🚀 Deploying with \$DC ..."
+          cd "\$APP_DIR"
+          # Pull latest images, restart stack
+          \$DC -f docker-compose.prod.yml --env-file .env.prod pull
+          \$DC -f docker-compose.prod.yml --env-file .env.prod down || true
+          \$DC -f docker-compose.prod.yml --env-file .env.prod up -d
+          \$DC -f docker-compose.prod.yml --env-file .env.prod ps
+          \$DC -f docker-compose.prod.yml --env-file .env.prod logs --tail=20
+          EOF
