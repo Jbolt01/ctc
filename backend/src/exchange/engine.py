@@ -37,6 +37,15 @@ class MatchingEngine:
         self.bids.sort(key=lambda o: (-(o.price or 0.0)))
         self.asks.sort(key=lambda o: (o.price or 0.0))
 
+    def reset(self) -> None:
+        """Clear all in-memory book state.
+
+        This is used by the manager to rebuild the book from the database to
+        prevent duplicate or stale orders from persisting across requests.
+        """
+        self.bids.clear()
+        self.asks.clear()
+
     def add_order(self, order: SimpleOrder) -> tuple[list[SimpleTrade], list[SimpleCancel]]:
         trades: list[SimpleTrade] = []
         cancels: list[SimpleCancel] = []
