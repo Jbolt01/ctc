@@ -146,13 +146,72 @@ jobs:
           HTTPS_PORT=${{ secrets.HTTPS_PORT }}
           EOF
 
-      - name: Deploy
+      - name: Create remote app directory
         env:
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_APP_DIR: ${{ secrets.DEPLOY_APP_DIR }}
-          SSH_OPTS: -o StrictHostKeyChecking=yes
         run: |
           set -euo pipefail
-          export DEPLOY_SERVER="${DEPLOY_USER}@${DEPLOY_HOST}"
-          bash deploy-remote.sh
+          SSH_TARGET="${DEPLOY_USER}@${DEPLOY_HOST}"
+          ssh -o StrictHostKeyChecking=yes "$SSH_TARGET" "mkdir -p '${DEPLOY_APP_DIR}'"
+
+      - name: Upload deployment assets
+        env:
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_APP_DIR: ${{ secrets.DEPLOY_APP_DIR }}
+        run: |
+          set -euo pipefail
+          SSH_TARGET="${DEPLOY_USER}@${DEPLOY_HOST}"
+          scp -o StrictHostKeyChecking=yes docker-compose.prod.yml nginx.conf .env.prod "$SSH_TARGET:${DEPLOY_APP_DIR}/"
+
+      - name: Deploy remotely (Docker + Compose, pull and restart)
+        env:
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_APP_DIR: ${{ secrets.DEPLOY_APP_DIR }}
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+        run: |
+          set -euo pipefail
+          SSH_TARGET="${DEPLOY_USER}@${DEPLOY_HOST}"
+          ssh -o StrictHostKeyChecking=yes "$SSH_TARGET" "bash -lc '
+            set -euo pipefail
+            export APP_DIR="${DEPLOY_APP_DIR}"
+            export GHCR_USERNAME="${GHCR_USERNAME:-}"
+            export GHCR_TOKEN="${GHCR_TOKEN:-}"
+
+            echo "📋 Checking Docker..."
+            if ! command -v docker >/dev/null 2>&1; then
+              echo "🐳 Installing Docker..."
+              curl -fsSL https://get.docker.com -o get-docker.sh && sh get-docker.sh && rm get-docker.sh
+            fi
+
+            echo "📋 Checking Docker Compose..."
+            DC="docker compose"
+            if ! docker compose version >/dev/null 2>&1; then
+              if command -v docker-compose >/dev/null 2>&1; then
+                DC="docker-compose"
+              else
+                echo "🐙 Installing docker-compose binary..."
+                curl -L \"https://github.com/docker/compose/releases/latest/download/docker-compose-\$(uname -s)-\$(uname -m)\" -o /usr/local/bin/docker-compose
+                chmod +x /usr/local/bin/docker-compose
+                DC="docker-compose"
+              fi
+            fi
+
+            echo "📦 Logging in to GHCR (if credentials provided)..."
+            if [ -n \"$GHCR_USERNAME\" ] && [ -n \"$GHCR_TOKEN\" ]; then
+              echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin || true
+            fi
+
+            echo "🚀 Deploying with $DC ..."
+            cd "$APP_DIR"
+            # Pull latest images, restart stack
+            $DC -f docker-compose.prod.yml --env-file .env.prod pull
+            $DC -f docker-compose.prod.yml --env-file .env.prod down || true
+            $DC -f docker-compose.prod.yml --env-file .env.prod up -d
+            $DC -f docker-compose.prod.yml --env-file .env.prod ps
+            $DC -f docker-compose.prod.yml --env-file .env.prod logs --tail=20
+          '"
