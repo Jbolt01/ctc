@@ -9,6 +9,7 @@ class SimpleOrder:
     side: str  # "buy" or "sell"
     quantity: int
     price: float | None
+    team_id: str
 
 
 @dataclass
@@ -17,6 +18,13 @@ class SimpleTrade:
     seller_order_id: str
     quantity: int
     price: float
+
+
+@dataclass
+class SimpleCancel:
+    order_id: str
+    quantity: int
+    reason: str = "self_trade_prevention"
 
 
 class MatchingEngine:
@@ -29,18 +37,20 @@ class MatchingEngine:
         self.bids.sort(key=lambda o: (-(o.price or 0.0)))
         self.asks.sort(key=lambda o: (o.price or 0.0))
 
-    def add_order(self, order: SimpleOrder) -> list[SimpleTrade]:
+    def add_order(self, order: SimpleOrder) -> tuple[list[SimpleTrade], list[SimpleCancel]]:
         trades: list[SimpleTrade] = []
+        cancels: list[SimpleCancel] = []
         if order.side == "buy":
-            trades = self._match_buy(order)
-            if order.quantity > 0:
+            trades, cancels = self._match_buy(order)
+            # Do not rest market orders (price None). Cancel remainder implicitly.
+            if order.quantity > 0 and order.price is not None:
                 self.bids.append(order)
         else:
-            trades = self._match_sell(order)
-            if order.quantity > 0:
+            trades, cancels = self._match_sell(order)
+            if order.quantity > 0 and order.price is not None:
                 self.asks.append(order)
         self._sort_books()
-        return trades
+        return trades, cancels
 
     def get_orderbook_levels(
         self, depth: int = 10
@@ -59,8 +69,9 @@ class MatchingEngine:
         asks_sorted = sorted(ask_levels.items(), key=lambda x: x[0])[:depth]
         return bids_sorted, asks_sorted
 
-    def _match_buy(self, buy: SimpleOrder) -> list[SimpleTrade]:
+    def _match_buy(self, buy: SimpleOrder) -> tuple[list[SimpleTrade], list[SimpleCancel]]:
         trades: list[SimpleTrade] = []
+        cancels: list[SimpleCancel] = []
         # naive loop over asks
         i = 0
         while i < len(self.asks) and buy.quantity > 0:
@@ -70,25 +81,38 @@ class MatchingEngine:
                 continue
             # Price-time priority simplified: price only
             if buy.price is None or buy.price >= ask.price:
-                qty = min(buy.quantity, ask.quantity)
-                trades.append(
-                    SimpleTrade(
-                        buyer_order_id=buy.order_id,
-                        seller_order_id=ask.order_id,
-                        quantity=qty,
-                        price=ask.price,
+                # Self-trade prevention: cancel resting self-quantity first
+                if ask.team_id == buy.team_id:
+                    cancel_qty = min(buy.quantity, ask.quantity)
+                    if cancel_qty > 0:
+                        ask.quantity -= cancel_qty
+                        cancels.append(SimpleCancel(order_id=ask.order_id, quantity=cancel_qty))
+                        if ask.quantity == 0:
+                            self.asks.pop(i)
+                            continue
+                    # If ask still has quantity after canceling up to buy's remaining,
+                    # continue walking (do not reduce buy.quantity on self-cancel)
+                else:
+                    qty = min(buy.quantity, ask.quantity)
+                    trades.append(
+                        SimpleTrade(
+                            buyer_order_id=buy.order_id,
+                            seller_order_id=ask.order_id,
+                            quantity=qty,
+                            price=ask.price,
+                        )
                     )
-                )
-                buy.quantity -= qty
-                ask.quantity -= qty
-                if ask.quantity == 0:
-                    self.asks.pop(i)
-                    continue
+                    buy.quantity -= qty
+                    ask.quantity -= qty
+                    if ask.quantity == 0:
+                        self.asks.pop(i)
+                        continue
             i += 1
-        return trades
+        return trades, cancels
 
-    def _match_sell(self, sell: SimpleOrder) -> list[SimpleTrade]:
+    def _match_sell(self, sell: SimpleOrder) -> tuple[list[SimpleTrade], list[SimpleCancel]]:
         trades: list[SimpleTrade] = []
+        cancels: list[SimpleCancel] = []
         i = 0
         while i < len(self.bids) and sell.quantity > 0:
             bid = self.bids[i]
@@ -96,20 +120,30 @@ class MatchingEngine:
                 i += 1
                 continue
             if sell.price is None or sell.price <= bid.price:
-                qty = min(sell.quantity, bid.quantity)
-                trades.append(
-                    SimpleTrade(
-                        buyer_order_id=bid.order_id,
-                        seller_order_id=sell.order_id,
-                        quantity=qty,
-                        price=bid.price,
+                # Self-trade prevention: cancel resting self-quantity first
+                if bid.team_id == sell.team_id:
+                    cancel_qty = min(sell.quantity, bid.quantity)
+                    if cancel_qty > 0:
+                        bid.quantity -= cancel_qty
+                        cancels.append(SimpleCancel(order_id=bid.order_id, quantity=cancel_qty))
+                        if bid.quantity == 0:
+                            self.bids.pop(i)
+                            continue
+                    # Do not reduce incoming sell quantity for self-cancel
+                else:
+                    qty = min(sell.quantity, bid.quantity)
+                    trades.append(
+                        SimpleTrade(
+                            buyer_order_id=bid.order_id,
+                            seller_order_id=sell.order_id,
+                            quantity=qty,
+                            price=bid.price,
+                        )
                     )
-                )
-                sell.quantity -= qty
-                bid.quantity -= qty
-                if bid.quantity == 0:
-                    self.bids.pop(i)
-                    continue
+                    sell.quantity -= qty
+                    bid.quantity -= qty
+                    if bid.quantity == 0:
+                        self.bids.pop(i)
+                        continue
             i += 1
-        return trades
-
+        return trades, cancels
