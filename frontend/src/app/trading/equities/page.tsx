@@ -811,28 +811,63 @@ function TradesPanel({ trades }: { trades: TradeRecord[] }) {
       <div className="max-h-96 overflow-y-auto">
         {recentTrades.length > 0 ? (
           <div className="divide-y divide-gray-700/30">
-            {recentTrades.map((trade) => (
-              <div key={trade.trade_id} className="p-4 hover:bg-gray-800/30 transition-colors border-l-2 border-transparent hover:border-blue-400/50">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="font-bold text-white font-mono">
-                      {trade.quantity.toLocaleString()} {trade.symbol}
+            {recentTrades.map((trade) => {
+              const isBuy = trade.side === 'buy';
+              const sidePill = (
+                <span
+                  className={`px-2 py-0.5 rounded-full text-xs font-bold font-mono ${
+                    isBuy
+                      ? 'bg-emerald-900/50 text-emerald-300 border border-emerald-500/40'
+                      : 'bg-red-900/50 text-red-300 border border-red-500/40'
+                  }`}
+                >
+                  {isBuy ? 'BOUGHT' : 'SOLD'}
+                </span>
+              );
+              return (
+                <div
+                  key={trade.trade_id}
+                  className={`p-4 transition-colors border-l-2 ${
+                    isBuy
+                      ? 'hover:bg-emerald-900/20 hover:border-emerald-400/50'
+                      : 'hover:bg-red-900/20 hover:border-red-400/50'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="font-bold text-white font-mono">
+                        <span className="mr-2">
+                          {trade.quantity.toLocaleString()} {trade.symbol}
+                        </span>
+                        {trade.side ? sidePill : null}
+                      </div>
+                      <div
+                        className={`text-sm font-mono ${
+                          isBuy ? 'text-emerald-400' : 'text-red-400'
+                        }`}
+                      >
+                        @ ${trade.price.toFixed(2)}
+                      </div>
                     </div>
-                    <div className="text-sm text-cyan-400 font-mono">
-                      @ ${trade.price.toFixed(2)}
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="font-bold text-blue-400 font-mono">
-                      ${(trade.price * trade.quantity).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
-                    </div>
-                    <div className="text-xs text-gray-500 font-mono">
-                      {new Date(trade.executed_at).toLocaleTimeString()}
+                    <div className="text-right">
+                      <div
+                        className={`font-bold font-mono ${
+                          isBuy ? 'text-emerald-400' : 'text-red-400'
+                        }`}
+                      >
+                        {(trade.price * trade.quantity).toLocaleString(
+                          undefined,
+                          { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+                        )}
+                      </div>
+                      <div className="text-xs text-gray-500 font-mono">
+                        {new Date(trade.executed_at).toLocaleTimeString()}
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <div className="p-8 text-center">

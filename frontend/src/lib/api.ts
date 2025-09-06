@@ -97,6 +97,7 @@ export type TradeRecord = {
   quantity: number;
   price: number;
   executed_at: string;
+  side?: 'buy' | 'sell' | null;
 };
 export type TradesResponse = { trades: TradeRecord[] };
 export function fetchTrades(symbol?: string) {
@@ -145,4 +146,3 @@ export function adminListCompetitions() {
 export function adminCreateCompetition(payload: { name: string; start_time: string; end_time: string; is_active?: boolean }) {
   return apiPost(`/api/v1/admin/competitions`, payload);
 }
-

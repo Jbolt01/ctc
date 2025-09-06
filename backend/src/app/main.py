@@ -522,6 +522,7 @@ class TradeRecord(BaseModel):
     quantity: int
     price: float
     executed_at: datetime
+    side: Literal["buy", "sell"] | None = None
 
 
 class TradesResponse(BaseModel):
@@ -541,10 +542,8 @@ async def get_trades(
     # We need to check both buyer and seller orders to see if this team is involved
     team = await _get_team_by_id(session, api_key["team_id"])
 
-    # Subquery to get buyer orders for this team
+    # Subqueries to get orders for this team
     buyer_orders = select(OrderModel.id).where(OrderModel.team_id == team.id).subquery()
-
-    # Subquery to get seller orders for this team
     seller_orders = select(OrderModel.id).where(OrderModel.team_id == team.id).subquery()
 
     stmt = select(
@@ -553,6 +552,8 @@ async def get_trades(
         TradeModel.quantity,
         TradeModel.price,
         TradeModel.executed_at,
+        TradeModel.buyer_order_id,
+        TradeModel.seller_order_id,
     ).join(SymbolModel, SymbolModel.id == TradeModel.symbol_id)\
      .where(
          (TradeModel.buyer_order_id.in_(select(buyer_orders.c.id))) |
@@ -566,16 +567,30 @@ async def get_trades(
     stmt = stmt.order_by(TradeModel.executed_at.desc())
 
     rows = (await session.execute(stmt)).all()
-    trades = [
-        TradeRecord(
-            trade_id=str(r.id),
-            symbol=r.symbol,
-            quantity=r.quantity,
-            price=float(r.price),
-            executed_at=r.executed_at,
+    # Build a set of this team's order IDs to infer trade side quickly
+    res_ids = await session.execute(
+        select(OrderModel.id).where(OrderModel.team_id == team.id)
+    )
+    team_order_ids = set(res_ids.scalars().all())
+    trades = []
+    for r in rows:
+        side: Literal["buy", "sell"] | None
+        if r.buyer_order_id in team_order_ids:
+            side = "buy"
+        elif r.seller_order_id in team_order_ids:
+            side = "sell"
+        else:
+            side = None
+        trades.append(
+            TradeRecord(
+                trade_id=str(r.id),
+                symbol=r.symbol,
+                quantity=r.quantity,
+                price=float(r.price),
+                executed_at=r.executed_at,
+                side=side,
+            )
         )
-        for r in rows
-    ]
     return TradesResponse(trades=trades)
 
 

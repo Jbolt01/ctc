@@ -104,6 +104,53 @@ def test_e2e_limit_match_price_priority(test_app: TestClient, api_keys: tuple[st
     bids = ob["bids"]
     assert bids and bids[0]["price"] == 101.0 and bids[0]["quantity"] == 20
 
+    # Trades endpoint should include side relative to team
+    team_trades = test_app.get(
+        "/api/v1/trades",
+        headers={"X-API-Key": key_a},
+        params={"symbol": symbol},
+    )
+    assert team_trades.status_code == 200
+    trades_json = team_trades.json()["trades"]
+    # Latest trade(s) should include side 'buy' for Team A
+    assert any(t.get("side") == "buy" for t in trades_json)
+
+
+def test_e2e_trade_side_sell_annotation(test_app: TestClient, api_keys: tuple[str, str]) -> None:
+    key_a, key_b = api_keys
+    symbol = "AAPL"
+
+    # Team B places a strong bid
+    place_order(
+        test_app,
+        api_key=key_b,
+        symbol=symbol,
+        side="buy",
+        order_type="limit",
+        quantity=50,
+        price=110.0,
+    )
+    # Team A sells into that bid
+    place_order(
+        test_app,
+        api_key=key_a,
+        symbol=symbol,
+        side="sell",
+        order_type="limit",
+        quantity=50,
+        price=100.0,
+    )
+
+    # Fetch trades for Team A and verify side marking as 'sell'
+    resp = test_app.get(
+        "/api/v1/trades",
+        headers={"X-API-Key": key_a},
+        params={"symbol": symbol},
+    )
+    assert resp.status_code == 200
+    trades = resp.json()["trades"]
+    assert any(t.get("side") == "sell" and t.get("quantity") == 50 for t in trades)
+
 
 def test_e2e_market_buy_partial_cancel_remainder(
     test_app: TestClient, api_keys: tuple[str, str]
