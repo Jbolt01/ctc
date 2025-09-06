@@ -1,9 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import sys
-
-import pytest
 
 from src.exchange.engine import MatchingEngine, SimpleOrder
 
@@ -124,9 +121,6 @@ def test_manager_load_clears_and_prevents_duplicate_trade() -> None:
     # in-memory engine via load_open_orders before a market order consumes it.
     # The manager should clear and rebuild the book, so a second market order
     # should not be able to trade with the already-filled resting order.
-    if sys.version_info < (3, 10):
-        pytest.skip("Requires Python 3.10+ for SQLAlchemy annotations parsing")
-
     from src.exchange.manager import ExchangeManager
 
     class FakeRow:
@@ -152,7 +146,15 @@ def test_manager_load_clears_and_prevents_duplicate_trade() -> None:
     engine = manager._get_engine(symbol)
 
     # Pre-existing in-memory ask from User A at 101 x 100
-    engine.add_order(SimpleOrder(order_id="A1", side="sell", quantity=100, price=101.0, team_id="teamA"))
+    engine.add_order(
+        SimpleOrder(
+            order_id="A1",
+            side="sell",
+            quantity=100,
+            price=101.0,
+            team_id="teamA",
+        )
+    )
 
     # First load: DB still shows A1 as open (pending)
     fake = FakeSession([
