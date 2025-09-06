@@ -4,9 +4,14 @@ import os
 import sys
 from logging.config import fileConfig
 
-from sqlalchemy import engine_from_config, pool
+from dotenv import load_dotenv
+from sqlalchemy import create_engine
 
 from alembic import context
+
+# Load .env file from project root
+dotenv_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
+load_dotenv(dotenv_path=dotenv_path)
 
 # Ensure project root is importable so 'src' is found when running Alembic
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -41,11 +46,11 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy_",
-        poolclass=pool.NullPool,
-    )
+    db_url = config.get_main_option("sqlalchemy_url")
+    if not db_url:
+        raise ValueError("A database URL must be provided via DATABASE_URL env var.")
+
+    connectable = create_engine(db_url)
 
     with connectable.connect() as connection:
         context.configure(connection=connection, target_metadata=target_metadata)
