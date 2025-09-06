@@ -31,7 +31,7 @@ class ExchangeManager:
         return state.engine
 
     def get_orderbook_levels(
-        self, symbol_code: str, depth: int = 10
+        self, symbol_code: str, depth: int = 50
     ) -> tuple[list[tuple[float, int]], list[tuple[float, int]]]:
         engine = self._get_engine(symbol_code)
         return engine.get_orderbook_levels(depth)
