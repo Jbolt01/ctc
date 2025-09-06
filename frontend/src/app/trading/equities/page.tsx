@@ -178,6 +178,9 @@ export default function EquitiesTradingPage() {
                 TRADING TERMINAL
               </span>
             </h1>
+            <p className="mt-2 text-gray-400 font-mono tracking-wide">
+              REAL-TIME MARKET DATA • ADVANCED ORDER MANAGEMENT • LIVE EXECUTION
+            </p>
             {userInfo && userInfo.teams.length > 0 && (
               <div className="mt-3 flex items-center space-x-4">
                 <div className="text-sm text-cyan-400 font-mono">
@@ -583,16 +586,30 @@ function OrderEntryPanel({
             <div className="relative">
               <input
                 type="number"
+                min="1"
+                max="1000000"
+                step="1"
                 className={`w-full rounded-lg border p-3 pr-16 font-mono text-white bg-gray-800/70 transition-all ${
                   focusedField === 'qty' 
                     ? 'border-cyan-400 ring-2 ring-cyan-400/20 bg-gray-800/90' 
                     : 'border-gray-600 hover:border-gray-500'
                 } focus:outline-none`}
                 value={qty}
-                onChange={(e) => setQty(parseInt(e.target.value || '0'))}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  if (value === '') {
+                    setQty(0);
+                  } else {
+                    const numValue = parseInt(value);
+                    if (!isNaN(numValue)) {
+                      // Clamp between 1 and 1,000,000
+                      setQty(Math.max(1, Math.min(1000000, numValue)));
+                    }
+                  }
+                }}
                 onFocus={() => setFocusedField('qty')}
                 onBlur={() => setFocusedField(null)}
-                placeholder="0"
+                placeholder="1"
               />
               <div className="absolute right-3 top-3 text-sm text-gray-400 font-mono">SHARES</div>
             </div>
@@ -617,6 +634,8 @@ function OrderEntryPanel({
                 <span className="absolute left-3 top-3 text-gray-400 font-mono">$</span>
                 <input
                   type="number"
+                  min="1"
+                  max="1000000"
                   step="0.01"
                   className={`w-full rounded-lg border p-3 pl-8 font-mono text-white bg-gray-800/70 transition-all ${
                     focusedField === 'price' 
@@ -624,10 +643,22 @@ function OrderEntryPanel({
                       : 'border-gray-600 hover:border-gray-500'
                   } focus:outline-none`}
                   value={price}
-                  onChange={(e) => setPrice(e.target.value === '' ? '' : Number(e.target.value))}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    if (value === '') {
+                      setPrice('');
+                    } else {
+                      const numValue = parseFloat(value);
+                      if (!isNaN(numValue)) {
+                        // Clamp between 1 and 1,000,000, round to 2 decimal places
+                        const clampedValue = Math.max(1, Math.min(1000000, numValue));
+                        setPrice(Math.round(clampedValue * 100) / 100);
+                      }
+                    }
+                  }}
                   onFocus={() => setFocusedField('price')}
                   onBlur={() => setFocusedField(null)}
-                  placeholder="0.00"
+                  placeholder="1.00"
                 />
               </div>
             </div>
