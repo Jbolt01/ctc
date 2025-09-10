@@ -276,24 +276,27 @@ jobs:
           \$DC -f docker-compose.prod.yml --env-file .env.prod logs --tail=20
           EOF
 
-      - name: Verify backend health (HTTPS preferred)
+      - name: Verify backend health (over SSH on remote)
+        env:
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
         run: |
           set -euo pipefail
-          for i in 1 2 3 4 5; do
-            STATUS_HTTPS=$(curl -s -o /dev/null -w "%{http_code}" -L https://${{ secrets.DEPLOY_HOST }}/health || true)
+          SSH_TARGET="${DEPLOY_USER}@${DEPLOY_HOST}"
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            STATUS_HTTPS=$(ssh -o StrictHostKeyChecking=yes "$SSH_TARGET" "curl -s -o /dev/null -w '%{http_code}' https://localhost/health" || true)
             if [ "$STATUS_HTTPS" = "200" ]; then
-              echo "Backend healthy over HTTPS"; exit 0
+              echo "Backend healthy over HTTPS (remote)"; exit 0
             fi
-            # Try ignoring cert errors (self-signed fallback)
-            STATUS_HTTPS_INSECURE=$(curl -k -s -o /dev/null -w "%{http_code}" -L https://${{ secrets.DEPLOY_HOST }}/health || true)
+            STATUS_HTTPS_INSECURE=$(ssh -o StrictHostKeyChecking=yes "$SSH_TARGET" "curl -k -s -o /dev/null -w '%{http_code}' https://localhost/health" || true)
             if [ "$STATUS_HTTPS_INSECURE" = "200" ]; then
-              echo "Backend healthy over HTTPS (self-signed)"; exit 0
+              echo "Backend healthy over HTTPS (self-signed, remote)"; exit 0
             fi
-            STATUS_HTTP=$(curl -s -o /dev/null -w "%{http_code}" -L http://${{ secrets.DEPLOY_HOST }}/health || true)
+            STATUS_HTTP=$(ssh -o StrictHostKeyChecking=yes "$SSH_TARGET" "curl -s -o /dev/null -w '%{http_code}' http://localhost/health" || true)
             if [ "$STATUS_HTTP" = "200" ]; then
-              echo "Backend healthy over HTTP"; exit 0
+              echo "Backend healthy over HTTP (remote)"; exit 0
             fi
-            echo "Health check attempt $i failed (https: $STATUS_HTTPS / insecure: $STATUS_HTTPS_INSECURE, http: $STATUS_HTTP). Retrying..."
-            sleep 3
+            echo "Health check attempt $i failed (remote https: $STATUS_HTTPS / insecure: $STATUS_HTTPS_INSECURE, http: $STATUS_HTTP). Retrying..."
+            sleep 5
           done
           echo "Backend health check failed"; exit 1
