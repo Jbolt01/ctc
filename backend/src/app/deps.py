@@ -52,3 +52,10 @@ async def require_api_key(
 
 RequireAPIKey = Annotated[APIKey, Depends(require_api_key)]
 
+
+async def require_admin(api_key: APIKey = Depends(require_api_key)) -> APIKey:
+    if not api_key["is_admin"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return api_key
+
+RequireAdmin = Annotated[APIKey, Depends(require_admin)]

@@ -146,3 +146,27 @@ export function adminListCompetitions() {
 export function adminCreateCompetition(payload: { name: string; start_time: string; end_time: string; is_active?: boolean }) {
   return apiPost(`/api/v1/admin/competitions`, payload);
 }
+
+// Admin: Users
+export type AdminUser = { id: string; email: string; name: string; is_admin: boolean };
+export function adminListUsers() {
+  return apiGet<AdminUser[]>(`/api/v1/admin/users`);
+}
+export function adminSetUserAdmin(userId: string, is_admin: boolean) {
+  return apiPost(`/api/v1/admin/users/${userId}/admin`, { is_admin });
+}
+
+// Admin: Market Data
+export function adminUpsertMarketData(payload: { symbol: string; close: number }) {
+  return apiPost(`/api/v1/admin/market-data`, payload);
+}
+
+// Admin: Symbols (delete)
+export async function adminDeleteSymbol(symbol: string) {
+  const res = await fetch(`${API_BASE}/api/v1/admin/symbols/${encodeURIComponent(symbol)}`, {
+    method: 'DELETE',
+    headers: { 'X-API-Key': getApiKey() },
+  });
+  if (!res.ok) throw new Error('DELETE /admin/symbols failed');
+  return res.json();
+}

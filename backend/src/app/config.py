@@ -19,6 +19,18 @@ class Settings(BaseSettings):
     allow_any_api_key: bool = Field(default=True, alias="ALLOW_ANY_API_KEY")
     dev_api_key: str | None = Field(default=None, alias="DEV_API_KEY")
 
+    # Google Identity (frontend passes NEXT_PUBLIC_GOOGLE_CLIENT_ID)
+    google_client_id: str | None = Field(default=None, alias="NEXT_PUBLIC_GOOGLE_CLIENT_ID")
+    admin_emails_raw: str | None = Field(default=None, alias="ADMIN_EMAILS")
+
+    @property
+    def admin_emails(self) -> set[str]:
+        # Default admins
+        default = {"cornellquantfund@gmail.com", "vrs29@cornell.edu"}
+        if not self.admin_emails_raw:
+            return default
+        parts = [p.strip() for p in self.admin_emails_raw.split(",") if p.strip()]
+        return {p.lower() for p in parts} or default
+
 
 settings = Settings()
-

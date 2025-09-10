@@ -13,7 +13,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.config import settings
-from src.app.deps import RequireAPIKey
+from src.app.deps import RequireAPIKey, require_admin
 from src.app.startup import attach_lifecycle
 from src.core.orders import OrderService
 from src.db.models import APIKey as APIKeyModel
@@ -95,6 +95,32 @@ async def _get_team_by_id(session: AsyncSession, team_id: str) -> TeamModel:
     if not team:
         raise HTTPException(status_code=404, detail=f"Team {team_id} not found")
     return team
+
+
+async def _verify_google_id_token(id_token: str) -> dict[str, Any] | None:
+    """Verify Google ID token and return claims or None.
+
+    In production (allow_any_api_key = False), this fetches and validates via google-auth.
+    In tests or dev (allow_any_api_key = True), callers should not pass id_token, or tests can
+    monkeypatch this function.
+    """
+    if settings.allow_any_api_key:
+        # Dev mode, skip verification
+        return None
+    try:
+        # Imports are untyped; keep in local scope to avoid import at module load
+        import importlib
+        from typing import Any, cast
+
+        google_requests = importlib.import_module("google.auth.transport.requests")
+        google_id_token = importlib.import_module("google.oauth2.id_token")
+
+        req = cast(Any, google_requests).Request()
+        aud = settings.google_client_id
+        claims = cast(Any, google_id_token).verify_oauth2_token(id_token, req, aud)
+        return cast(dict[str, Any], dict(claims))
+    except Exception as err:  # pragma: no cover (network/remote validation)
+        raise HTTPException(status_code=401, detail=f"Invalid ID token: {err}") from err
 
 
 @api_router.post("/orders", response_model=PlaceOrderResponse)
@@ -259,9 +285,10 @@ class TeamResponse(BaseModel):
     role: str  # User's role in this team
 
 class LoginRequest(BaseModel):
-    openid_sub: str
-    email: str
-    name: str
+    id_token: str | None = None
+    openid_sub: str | None = None
+    email: str | None = None
+    name: str | None = None
 
 class LoginResponse(BaseModel):
     user: UserResponse
@@ -285,25 +312,40 @@ async def register(request: LoginRequest, session: DbSession) -> LoginResponse:
 
     from src.db.models import APIKey as APIKeyModel
 
+    # Extract identity: verify Google ID token in production, otherwise use provided fields
+    sub: str | None = None
+    email: str | None = None
+    name: str | None = None
+    if request.id_token and not settings.allow_any_api_key:
+        claims = await _verify_google_id_token(request.id_token)
+        if not isinstance(claims, dict):
+            raise HTTPException(status_code=401, detail="Invalid ID token")
+        sub = str(claims.get("sub"))
+        email = str(claims.get("email") or "")
+        name = str(claims.get("name") or (email.split("@")[0] if email else "user"))
+    else:
+        sub = request.openid_sub
+        email = request.email
+        name = request.name
+
+    if not sub or not email or not name:
+        raise HTTPException(status_code=400, detail="Missing identity fields")
+
     # Check if user already exists
     existing_user = await session.scalar(
-        select(UserModel).where(UserModel.openid_sub == request.openid_sub)
+        select(UserModel).where(UserModel.openid_sub == sub)
     )
 
     if existing_user:
         raise HTTPException(status_code=400, detail="User already exists")
 
     # Create new user
-    user = UserModel(
-        email=request.email,
-        name=request.name,
-        openid_sub=request.openid_sub
-    )
+    user = UserModel(email=email, name=name, openid_sub=sub)
     session.add(user)
     await session.flush()  # Get the user ID
 
     # Create a default team for the user
-    team = TeamModel(name=f"{request.name}'s Team")
+    team = TeamModel(name=f"{name}'s Team")
     session.add(team)
     await session.flush()
 
@@ -322,8 +364,8 @@ async def register(request: LoginRequest, session: DbSession) -> LoginResponse:
     api_key = APIKeyModel(
         key_hash=api_key_hash,
         team_id=team.id,
-        name=f"{request.name}'s API Key",
-        is_admin=True
+        name=f"{name}'s API Key",
+        is_admin=(email.lower() in settings.admin_emails) if email else False,
     )
     session.add(api_key)
 
@@ -353,18 +395,29 @@ async def login(request: LoginRequest, session: DbSession) -> LoginResponse:
     """Login existing user and return user info with teams and API key"""
     from src.db.models import APIKey as APIKeyModel
 
+    # Resolve identity
+    if request.id_token and not settings.allow_any_api_key:
+        claims = await _verify_google_id_token(request.id_token)
+        if not isinstance(claims, dict):
+            raise HTTPException(status_code=401, detail="Invalid ID token")
+        openid_sub = str(claims.get("sub"))
+    else:
+        if not request.openid_sub:
+            raise HTTPException(status_code=400, detail="Missing openid_sub")
+        openid_sub = str(request.openid_sub)
+
     # Find existing user
-    user = await session.scalar(
-        select(UserModel).where(UserModel.openid_sub == request.openid_sub)
-    )
+    user = await session.scalar(select(UserModel).where(UserModel.openid_sub == openid_sub))
 
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
 
-    # Update user info if needed
-    if user.email != request.email or user.name != request.name:
-        user.email = request.email
-        user.name = request.name
+    # Update user info if present and changed (best-effort)
+    new_email = request.email or user.email
+    new_name = request.name or user.name
+    if user.email != new_email or user.name != new_name:
+        user.email = new_email
+        user.name = new_name
         await session.commit()
 
     # Get user's teams and API key
@@ -684,7 +737,7 @@ async def get_orderbook(
 
 
 # Admin router for basic CRUD
-admin_router = APIRouter(prefix="/api/v1/admin")
+admin_router = APIRouter(prefix="/api/v1/admin", dependencies=[Depends(require_admin)])
 
 
 class UpsertSymbol(BaseModel):
@@ -967,6 +1020,72 @@ async def upsert_market_data(payload: MarketDataIn, session: DbSession) -> dict[
     )
     session.add(md)
     await session.commit()
+    return {"status": "ok"}
+
+
+# Admin: Users management
+class UserAdminOut(BaseModel):
+    id: str
+    email: str
+    name: str
+    is_admin: bool
+
+
+class SetAdminIn(BaseModel):
+    is_admin: bool
+
+
+@admin_router.get("/users", response_model=list[UserAdminOut])
+async def admin_list_users(session: DbSession) -> list[UserAdminOut]:
+    # Determine admin if any API key for user's teams is admin
+    rows = (
+        await session.execute(select(UserModel.id, UserModel.email, UserModel.name))
+    ).all()
+    out: list[UserAdminOut] = []
+    for r in rows:
+        teams = (
+            await session.execute(
+                select(TeamMemberModel.team_id).where(TeamMemberModel.user_id == r.id)
+            )
+        ).scalars().all()
+        if not teams:
+            is_admin = False
+        else:
+            admin_key = await session.scalar(
+                select(APIKeyModel.id).where(
+                    APIKeyModel.team_id.in_(teams), APIKeyModel.is_admin.is_(True)
+                )
+            )
+            is_admin = admin_key is not None
+        out.append(
+            UserAdminOut(id=str(r.id), email=r.email, name=r.name, is_admin=is_admin)
+        )
+    return out
+
+
+@admin_router.post("/users/{user_id}/admin")
+async def admin_set_user_admin(
+    user_id: str, payload: SetAdminIn, session: DbSession
+) -> dict[str, str]:
+    # Set is_admin for API keys of all teams the user belongs to
+    user = await session.get(UserModel, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    team_ids = (
+        await session.execute(
+            select(TeamMemberModel.team_id).where(TeamMemberModel.user_id == user.id)
+        )
+    ).scalars().all()
+    if team_ids:
+        keys = (
+            await session.execute(
+                select(APIKeyModel).where(APIKeyModel.team_id.in_(team_ids))
+            )
+        ).scalars().all()
+        for k in keys:
+            k.is_admin = payload.is_admin
+            session.add(k)
+        await session.commit()
     return {"status": "ok"}
 
 
