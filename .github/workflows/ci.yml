@@ -226,15 +226,19 @@ jobs:
           \$DC -f docker-compose.prod.yml --env-file .env.prod logs --tail=20
           EOF
 
-      - name: Verify backend health
+      - name: Verify backend health (HTTPS preferred)
         run: |
           set -euo pipefail
           for i in 1 2 3 4 5; do
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://${{ secrets.DEPLOY_HOST }}/health || true)
-            if [ "$STATUS" = "200" ]; then
-              echo "Backend healthy"; exit 0
+            STATUS_HTTPS=$(curl -s -o /dev/null -w "%{http_code}" -L https://${{ secrets.DEPLOY_HOST }}/health || true)
+            if [ "$STATUS_HTTPS" = "200" ]; then
+              echo "Backend healthy over HTTPS"; exit 0
             fi
-            echo "Health check attempt $i failed (status: $STATUS). Retrying..."
+            STATUS_HTTP=$(curl -s -o /dev/null -w "%{http_code}" -L http://${{ secrets.DEPLOY_HOST }}/health || true)
+            if [ "$STATUS_HTTP" = "200" ]; then
+              echo "Backend healthy over HTTP"; exit 0
+            fi
+            echo "Health check attempt $i failed (https: $STATUS_HTTPS, http: $STATUS_HTTP). Retrying..."
             sleep 3
           done
           echo "Backend health check failed"; exit 1

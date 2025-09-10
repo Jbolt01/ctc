@@ -55,7 +55,7 @@ Frontend:
 
 The application will be available at:
 - Frontend: http://localhost:3000
-- API: http://localhost/api/v1 (via nginx)
-- WebSocket: ws://localhost/ws/v1/market-data (via nginx)
+- API: https://localhost/api/v1 (via nginx, with TLS)
+- WebSocket: wss://localhost/ws/v1/market-data (via nginx)
 
-See `docker-compose.yml` and `nginx.conf` for details.
+See `docker-compose.yml` and `nginx.conf` for details. To run locally with HTTPS, place a certificate and key at `./certs/server.crt` and `./certs/server.key` (self-signed is fine for dev). The reverse proxy will redirect HTTP to HTTPS and terminate TLS with secure defaults and HSTS.

@@ -128,21 +128,20 @@ openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
   -subj "/CN=your-domain.com"
 ```
 
-### 2. Update nginx.conf
+### 2. HTTPS in nginx.conf
 
-Make sure your `nginx.conf` includes SSL configuration:
+This repo includes an `nginx.conf` that terminates TLS on port 443 with secure defaults (TLS 1.2/1.3, modern ciphers, HSTS) and redirects port 80 → 443. It expects certs at:
 
-```nginx
-server {
-    listen 443 ssl;
-    server_name your-domain.com;
-    
-    ssl_certificate /etc/nginx/certs/server.crt;
-    ssl_certificate_key /etc/nginx/certs/server.key;
-    
-    # ... rest of configuration
-}
+- `/etc/nginx/certs/server.crt`
+- `/etc/nginx/certs/server.key`
+
+The production compose file mounts `./certs` into that path. Ensure you place your certificate and key on the server:
+
+```bash
+scp -r certs $DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_APP_DIR/
 ```
+
+If you use Let’s Encrypt, copy the fullchain and privkey into `certs/server.crt` and `certs/server.key` respectively (or adjust the nginx paths).
 
 ## Monitoring and Maintenance
 
