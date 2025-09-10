@@ -15,6 +15,10 @@ import {
   adminCreateSymbol,
   adminDeleteSymbol,
   adminUpsertMarketData,
+  adminPauseSymbols,
+  adminStartSymbols,
+  adminSettleSymbol,
+  adminListSymbols,
   fetchSymbols,
 } from '../../lib/api';
 
@@ -169,12 +173,20 @@ function UsersPanel() {
 }
 
 function SymbolsPanel() {
-  const [symbols, setSymbols] = useState<Array<{ symbol: string; name: string }>>([]);
+  const [symbols, setSymbols] = useState<Array<{ symbol: string; name: string; trading_halted?: boolean; settlement_active?: boolean; settlement_price?: number | null }>>([]);
   const [form, setForm] = useState({ symbol: '', name: '', symbol_type: 'equity', tick_size: 0.01, lot_size: 1 });
+  const [settlePrice, setSettlePrice] = useState<number>(0);
+  const [selectedSymbol, setSelectedSymbol] = useState<string>('');
 
   const load = async () => {
-    const s = await fetchSymbols();
-    setSymbols(s.symbols);
+    // Prefer admin list for status, fallback to public list
+    try {
+      const rows = await adminListSymbols();
+      setSymbols(rows);
+    } catch {
+      const s = await fetchSymbols();
+      setSymbols(s.symbols);
+    }
   };
   useEffect(() => { load(); }, []);
 
@@ -188,9 +200,33 @@ function SymbolsPanel() {
     await load();
   };
 
+  const pause = async (symbol?: string) => {
+    await adminPauseSymbols(symbol);
+  };
+  const start = async (symbol?: string) => {
+    await adminStartSymbols(symbol);
+  };
+  const settle = async () => {
+    if (!selectedSymbol || !settlePrice) return;
+    await adminSettleSymbol(selectedSymbol, settlePrice);
+    setSettlePrice(0);
+  };
+
   return (
     <div>
       <SectionHeader title="Symbols" subtitle="Create and delete tradable symbols" />
+      <div className="flex items-center gap-2 mb-4">
+        <button onClick={() => pause(undefined)} className="px-3 py-1.5 bg-red-900/50 border border-red-500/40 text-red-300 rounded font-mono">Pause All</button>
+        <button onClick={() => start(undefined)} className="px-3 py-1.5 bg-emerald-900/50 border border-emerald-500/40 text-emerald-300 rounded font-mono">Start All</button>
+        <div className="ml-auto flex items-center gap-2">
+          <select className="bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white font-mono" value={selectedSymbol} onChange={e => setSelectedSymbol(e.target.value)}>
+            <option value="">Select symbol</option>
+            {symbols.map(s => (<option key={s.symbol} value={s.symbol}>{s.symbol}</option>))}
+          </select>
+          <input type="number" step="0.01" className="bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white font-mono" placeholder="Settlement price" value={settlePrice || ''} onChange={e => setSettlePrice(Number(e.target.value))} />
+          <button onClick={settle} className="px-3 py-1.5 bg-amber-900/50 border border-amber-500/40 text-amber-300 rounded font-mono">Settle</button>
+        </div>
+      </div>
       <div className="grid md:grid-cols-2 gap-4">
         <div className="space-y-2">
           <input className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white font-mono" placeholder="Symbol (e.g., AAPL)" value={form.symbol} onChange={e => setForm({ ...form, symbol: e.target.value.toUpperCase() })} />
@@ -211,7 +247,18 @@ function SymbolsPanel() {
             <div key={s.symbol} className="flex items-center justify-between bg-gray-800/50 rounded px-3 py-2 border border-gray-700">
               <div className="text-white font-mono font-bold">{s.symbol}</div>
               <div className="text-gray-400 font-mono flex-1 ml-4">{s.name}</div>
-              <button onClick={() => remove(s.symbol)} className="text-red-400 font-mono hover:underline">Delete</button>
+              <div className="flex items-center gap-2">
+                {s.settlement_active ? (
+                  <span className="px-2 py-0.5 rounded-full text-xs font-mono bg-amber-900/50 border border-amber-500/40 text-amber-300">Settled @ {s.settlement_price?.toFixed(2)}</span>
+                ) : s.trading_halted ? (
+                  <span className="px-2 py-0.5 rounded-full text-xs font-mono bg-red-900/50 border border-red-500/40 text-red-300">Paused</span>
+                ) : (
+                  <span className="px-2 py-0.5 rounded-full text-xs font-mono bg-emerald-900/50 border border-emerald-500/40 text-emerald-300">Live</span>
+                )}
+                <button onClick={() => pause(s.symbol)} className="px-2 py-1 bg-red-900/50 border border-red-500/40 text-red-300 rounded font-mono text-xs">Pause</button>
+                <button onClick={() => start(s.symbol)} className="px-2 py-1 bg-emerald-900/50 border border-emerald-500/40 text-emerald-300 rounded font-mono text-xs">Start</button>
+                <button onClick={() => remove(s.symbol)} className="text-red-400 font-mono hover:underline">Delete</button>
+              </div>
             </div>
           ))}
         </div>
@@ -348,4 +395,3 @@ function MarketDataPanel() {
     </div>
   );
 }
-

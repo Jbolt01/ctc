@@ -80,6 +80,11 @@ class Symbol(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     tick_size: Mapped[float] = mapped_column(Numeric(10, 6), default=0.01)
     lot_size: Mapped[int] = mapped_column(Integer, default=1)
+    # Admin trading controls
+    trading_halted: Mapped[bool] = mapped_column(Boolean, default=False)
+    settlement_active: Mapped[bool] = mapped_column(Boolean, default=False)
+    settlement_price: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    settlement_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
 
 
@@ -183,4 +188,3 @@ class CompetitionTeam(Base):
         UUID(as_uuid=True), ForeignKey("teams.id"), primary_key=True
     )
     starting_capital: Mapped[float] = mapped_column(Numeric(20, 6), default=1_000_000)
-

@@ -161,6 +161,17 @@ export function adminUpsertMarketData(payload: { symbol: string; close: number }
   return apiPost(`/api/v1/admin/market-data`, payload);
 }
 
+// Admin: Trading controls
+export function adminPauseSymbols(symbol?: string) {
+  return apiPost(`/api/v1/admin/symbols/pause`, { symbol });
+}
+export function adminStartSymbols(symbol?: string) {
+  return apiPost(`/api/v1/admin/symbols/start`, { symbol });
+}
+export function adminSettleSymbol(symbol: string, price: number) {
+  return apiPost(`/api/v1/admin/symbols/settle`, { symbol, price });
+}
+
 // Admin: Symbols (delete)
 export async function adminDeleteSymbol(symbol: string) {
   const res = await fetch(`${API_BASE}/api/v1/admin/symbols/${encodeURIComponent(symbol)}`, {
@@ -169,4 +180,15 @@ export async function adminDeleteSymbol(symbol: string) {
   });
   if (!res.ok) throw new Error('DELETE /admin/symbols failed');
   return res.json();
+}
+// Admin: list symbols with status
+export type AdminSymbol = {
+  symbol: string;
+  name: string;
+  trading_halted: boolean;
+  settlement_active: boolean;
+  settlement_price?: number | null;
+};
+export function adminListSymbols() {
+  return apiGet<AdminSymbol[]>(`/api/v1/admin/symbols`);
 }

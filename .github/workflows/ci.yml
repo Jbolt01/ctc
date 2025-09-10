@@ -225,3 +225,16 @@ jobs:
           \$DC -f docker-compose.prod.yml --env-file .env.prod ps
           \$DC -f docker-compose.prod.yml --env-file .env.prod logs --tail=20
           EOF
+
+      - name: Verify backend health
+        run: |
+          set -euo pipefail
+          for i in 1 2 3 4 5; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://${{ secrets.DEPLOY_HOST }}/health || true)
+            if [ "$STATUS" = "200" ]; then
+              echo "Backend healthy"; exit 0
+            fi
+            echo "Health check attempt $i failed (status: $STATUS). Retrying..."
+            sleep 3
+          done
+          echo "Backend health check failed"; exit 1

@@ -132,6 +132,12 @@ async def place_order(
     from src.exchange.websocket_manager import websocket_manager
 
     team = await _get_team_by_id(session, api_key["team_id"])
+    # Enforce trading controls
+    sym_row = await session.scalar(select(SymbolModel).where(SymbolModel.symbol == payload.symbol))
+    if not sym_row:
+        raise HTTPException(status_code=404, detail="Symbol not found")
+    if sym_row.trading_halted or sym_row.settlement_active:
+        raise HTTPException(status_code=403, detail="Trading halted or settled for this symbol")
     service = OrderService(session)
     db_order = await service.place_order(
         team_id=team.id,
@@ -1021,6 +1027,103 @@ async def upsert_market_data(payload: MarketDataIn, session: DbSession) -> dict[
     session.add(md)
     await session.commit()
     return {"status": "ok"}
+
+
+@admin_router.get("/symbols")
+async def admin_list_symbols(session: DbSession) -> list[dict[str, Any]]:
+    rows = (
+        await session.execute(
+            select(
+                SymbolModel.symbol,
+                SymbolModel.name,
+                SymbolModel.trading_halted,
+                SymbolModel.settlement_active,
+                SymbolModel.settlement_price,
+            )
+        )
+    ).all()
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        out.append(
+            {
+                "symbol": r.symbol,
+                "name": r.name,
+                "trading_halted": r.trading_halted,
+                "settlement_active": r.settlement_active,
+                "settlement_price": float(r.settlement_price) if r.settlement_price is not None else None,
+            }
+        )
+    return out
+
+
+# Admin: Trading controls
+class TradingActionIn(BaseModel):
+    symbol: str | None = None
+
+
+@admin_router.post("/symbols/pause")
+async def admin_pause_symbols(payload: TradingActionIn, session: DbSession) -> dict[str, str]:
+    q = select(SymbolModel)
+    if payload.symbol:
+        q = q.where(SymbolModel.symbol == payload.symbol)
+    rows = (await session.execute(q)).scalars().all()
+    for s in rows:
+        s.trading_halted = True
+        session.add(s)
+    await session.commit()
+    return {"status": "paused"}
+
+
+@admin_router.post("/symbols/start")
+async def admin_start_symbols(payload: TradingActionIn, session: DbSession) -> dict[str, str]:
+    q = select(SymbolModel)
+    if payload.symbol:
+        q = q.where(SymbolModel.symbol == payload.symbol)
+    rows = (await session.execute(q)).scalars().all()
+    for s in rows:
+        s.trading_halted = False
+        # clear settlement state when starting
+        s.settlement_active = False
+        s.settlement_price = None
+        s.settlement_at = None
+        session.add(s)
+    await session.commit()
+    return {"status": "started"}
+
+
+class SettleIn(BaseModel):
+    symbol: str
+    price: float
+
+
+@admin_router.post("/symbols/settle")
+async def admin_settle_symbol(payload: SettleIn, session: DbSession) -> dict[str, str]:
+    sym = await session.scalar(select(SymbolModel).where(SymbolModel.symbol == payload.symbol))
+    if not sym:
+        raise HTTPException(status_code=404, detail="Symbol not found")
+    # Mark as settled and halted
+    sym.trading_halted = True
+    sym.settlement_active = True
+    sym.settlement_price = payload.price
+    sym.settlement_at = datetime.utcnow()
+    session.add(sym)
+    # Convert open positions to realized PnL at settlement price
+    pos_rows = (
+        await session.execute(select(PositionModel).where(PositionModel.symbol_id == sym.id))
+    ).scalars().all()
+    for pos in pos_rows:
+        qty = pos.quantity
+        avg = float(pos.average_price) if pos.average_price is not None else None
+        if qty == 0 or avg is None:
+            continue
+        price = float(payload.price)
+        pnl_add = (price - avg) * qty if qty > 0 else (avg - price) * -qty
+        pos.realized_pnl = float(pos.realized_pnl or 0) + pnl_add
+        pos.quantity = 0
+        pos.average_price = None
+        session.add(pos)
+    await session.commit()
+    return {"status": "settled"}
 
 
 # Admin: Users management
