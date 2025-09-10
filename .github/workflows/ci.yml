@@ -183,6 +183,8 @@ jobs:
           DEPLOY_APP_DIR: ${{ secrets.DEPLOY_APP_DIR }}
           GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          DEPLOY_DOMAIN: ${{ secrets.DEPLOY_DOMAIN }}
+          LETSENCRYPT_EMAIL: ${{ secrets.LETSENCRYPT_EMAIL }}
         run: |
           set -euo pipefail
           SSH_TARGET="${DEPLOY_USER}@${DEPLOY_HOST}"
@@ -191,6 +193,8 @@ jobs:
           APP_DIR="${DEPLOY_APP_DIR}"
           GHCR_USERNAME="${GHCR_USERNAME:-}"
           GHCR_TOKEN="${GHCR_TOKEN:-}"
+          DEPLOY_DOMAIN="${DEPLOY_DOMAIN:-}"
+          LETSENCRYPT_EMAIL="${LETSENCRYPT_EMAIL:-}"
 
           echo "📋 Checking Docker..."
           if ! command -v docker >/dev/null 2>&1; then
@@ -216,6 +220,52 @@ jobs:
             echo "\$GHCR_TOKEN" | docker login ghcr.io -u "\$GHCR_USERNAME" --password-stdin || true
           fi
 
+          echo "📁 Preparing app directories (certs, certbot, letsencrypt)..."
+          mkdir -p "\$APP_DIR/certs" "\$APP_DIR/certbot" "\$APP_DIR/letsencrypt"
+
+          echo "🔐 Ensuring TLS certificates..."
+          CERT_CRT="\$APP_DIR/certs/server.crt"
+          CERT_KEY="\$APP_DIR/certs/server.key"
+          if [ ! -s "\$CERT_CRT" ] || [ ! -s "\$CERT_KEY" ]; then
+            if [ -n "\$DEPLOY_DOMAIN" ] && [ -n "\$LETSENCRYPT_EMAIL" ]; then
+              echo "➡️  Attempting Let's Encrypt issuance for \$DEPLOY_DOMAIN via dockerized certbot (standalone)"
+              # Stop any running stack to free ports 80/443
+              ( cd "\$APP_DIR" && \$DC -f docker-compose.prod.yml --env-file .env.prod down || true )
+              docker run --rm \
+                -p 80:80 -p 443:443 \
+                -v "\$APP_DIR/letsencrypt:/etc/letsencrypt" \
+                certbot/certbot certonly --standalone \
+                -n --agree-tos -m "\$LETSENCRYPT_EMAIL" -d "\$DEPLOY_DOMAIN" || true
+
+              if [ -f "\$APP_DIR/letsencrypt/live/\$DEPLOY_DOMAIN/fullchain.pem" ] && [ -f "\$APP_DIR/letsencrypt/live/\$DEPLOY_DOMAIN/privkey.pem" ]; then
+                cp "\$APP_DIR/letsencrypt/live/\$DEPLOY_DOMAIN/fullchain.pem" "\$CERT_CRT"
+                cp "\$APP_DIR/letsencrypt/live/\$DEPLOY_DOMAIN/privkey.pem" "\$CERT_KEY"
+                echo "✅ Installed Let's Encrypt certs for \$DEPLOY_DOMAIN"
+              else
+                echo "⚠️  Let's Encrypt issuance failed; falling back to self-signed"
+                openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+                  -keyout "\$CERT_KEY" -out "\$CERT_CRT" \
+                  -subj "/CN=\${DEPLOY_DOMAIN:-localhost}" || true
+              fi
+            else
+              echo "ℹ️  No DEPLOY_DOMAIN/LETSENCRYPT_EMAIL provided; generating self-signed cert"
+              openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+                -keyout "\$CERT_KEY" -out "\$CERT_CRT" \
+                -subj "/CN=\${DEPLOY_DOMAIN:-localhost}" || true
+            fi
+          else
+            echo "🔎 Existing TLS certs found; attempting renewal if Let's Encrypt is configured"
+            if [ -n "\$DEPLOY_DOMAIN" ] && [ -n "\$LETSENCRYPT_EMAIL" ]; then
+              docker run --rm \
+                -v "\$APP_DIR/letsencrypt:/etc/letsencrypt" \
+                certbot/certbot renew -n || true
+              if [ -f "\$APP_DIR/letsencrypt/live/\$DEPLOY_DOMAIN/fullchain.pem" ] && [ -f "\$APP_DIR/letsencrypt/live/\$DEPLOY_DOMAIN/privkey.pem" ]; then
+                cp "\$APP_DIR/letsencrypt/live/\$DEPLOY_DOMAIN/fullchain.pem" "\$CERT_CRT" || true
+                cp "\$APP_DIR/letsencrypt/live/\$DEPLOY_DOMAIN/privkey.pem" "\$CERT_KEY" || true
+              fi
+            fi
+          fi
+
           echo "🚀 Deploying with \$DC ..."
           cd "\$APP_DIR"
           # Pull latest images, restart stack
@@ -234,11 +284,16 @@ jobs:
             if [ "$STATUS_HTTPS" = "200" ]; then
               echo "Backend healthy over HTTPS"; exit 0
             fi
+            # Try ignoring cert errors (self-signed fallback)
+            STATUS_HTTPS_INSECURE=$(curl -k -s -o /dev/null -w "%{http_code}" -L https://${{ secrets.DEPLOY_HOST }}/health || true)
+            if [ "$STATUS_HTTPS_INSECURE" = "200" ]; then
+              echo "Backend healthy over HTTPS (self-signed)"; exit 0
+            fi
             STATUS_HTTP=$(curl -s -o /dev/null -w "%{http_code}" -L http://${{ secrets.DEPLOY_HOST }}/health || true)
             if [ "$STATUS_HTTP" = "200" ]; then
               echo "Backend healthy over HTTP"; exit 0
             fi
-            echo "Health check attempt $i failed (https: $STATUS_HTTPS, http: $STATUS_HTTP). Retrying..."
+            echo "Health check attempt $i failed (https: $STATUS_HTTPS / insecure: $STATUS_HTTPS_INSECURE, http: $STATUS_HTTP). Retrying..."
             sleep 3
           done
           echo "Backend health check failed"; exit 1
