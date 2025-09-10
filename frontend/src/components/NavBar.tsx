@@ -17,11 +17,7 @@ interface Team {
   role: string;
 }
 
-const links = [
-  { href: '/trading/equities' as const, label: 'Equities' },
-  { href: '/trading/derivatives' as const, label: 'Derivatives' },
-  { href: '/admin/symbols' as const, label: 'Admin' },
-];
+const EQUITIES_ROUTE = '/trading/equities' as const;
 
 export default function NavBar() {
   const pathname = usePathname();
@@ -46,7 +42,7 @@ export default function NavBar() {
     localStorage.removeItem('user');
     localStorage.removeItem('teams');
     localStorage.removeItem('apiKey');
-    router.push('/login');
+    router.push('/');
   };
 
   return (
@@ -60,20 +56,17 @@ export default function NavBar() {
         
         <div className="flex items-center gap-4">
           <nav className="flex items-center gap-2 text-sm">
-            {links.map(({ href, label }) => (
-              <Link
-                key={href}
-                href={href}
-                className={clsx(
-                  'rounded-lg px-4 py-2 font-mono font-medium transition-all duration-200 hover:bg-gray-800/60 hover:text-cyan-400 border border-transparent hover:border-gray-700/50',
-                  pathname === href 
-                    ? 'bg-cyan-900/30 text-cyan-400 border-cyan-500/50 shadow-lg shadow-cyan-500/10' 
-                    : 'text-gray-300 hover:shadow-lg hover:shadow-gray-800/20'
-                )}
-              >
-                {label}
-              </Link>
-            ))}
+            <Link
+              href={EQUITIES_ROUTE}
+              className={clsx(
+                'rounded-lg px-4 py-2 font-mono font-medium transition-all duration-200 hover:bg-gray-800/60 hover:text-cyan-400 border border-transparent hover:border-gray-700/50',
+                pathname === EQUITIES_ROUTE
+                  ? 'bg-cyan-900/30 text-cyan-400 border-cyan-500/50 shadow-lg shadow-cyan-500/10'
+                  : 'text-gray-300 hover:shadow-lg hover:shadow-gray-800/20'
+              )}
+            >
+              Equities
+            </Link>
           </nav>
 
           {user ? (
@@ -117,7 +110,7 @@ export default function NavBar() {
             </div>
           ) : (
             <Link
-              href="/login"
+              href="/"
               className="bg-cyan-600 hover:bg-cyan-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
             >
               Sign In
@@ -128,4 +121,3 @@ export default function NavBar() {
     </header>
   );
 }
-

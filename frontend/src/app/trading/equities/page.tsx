@@ -82,7 +82,7 @@ export default function EquitiesTradingPage() {
     const teams = localStorage.getItem('teams');
     
     if (!apiKey || !user || !teams) {
-      router.push('/login');
+      router.push('/');
       return;
     }
     
