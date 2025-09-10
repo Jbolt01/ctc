@@ -106,31 +106,27 @@ docker-compose -f docker-compose.prod.yml --env-file .env.prod logs -f
 
 ## SSL/HTTPS Setup
 
-### 1. Obtain SSL Certificates
+### 1. Automatic Certificates via GitHub Actions (Recommended)
 
-For production, you'll need SSL certificates. Options include:
+The deploy job can automatically provision TLS certificates on your remote server:
 
-**Let's Encrypt (Recommended):**
-```bash
-# Install certbot
-sudo apt install certbot
+- Provide these repository secrets:
+  - `DEPLOY_DOMAIN` (e.g., `your-domain.com`)
+  - `LETSENCRYPT_EMAIL` (email for Let’s Encrypt)
 
-# Get certificate
-sudo certbot certonly --standalone -d your-domain.com
-```
+On deploy, the workflow will:
 
-**Self-signed (Development/Testing):**
-```bash
-mkdir -p certs
-openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-  -keyout certs/server.key \
-  -out certs/server.crt \
-  -subj "/CN=your-domain.com"
-```
+- Stop the stack (if running) to free ports 80/443
+- Run dockerized Certbot in standalone mode to obtain a certificate for `DEPLOY_DOMAIN`
+- Copy the issued `fullchain.pem` and `privkey.pem` into `./certs/server.crt` and `./certs/server.key`
+- If issuance fails or secrets are not provided, it falls back to generating a self‑signed certificate
+- On subsequent deploys, it attempts renewal and recopies the latest certs
+
+No extra manual steps are required once the secrets are set and DNS points to your server.
 
 ### 2. HTTPS in nginx.conf
 
-This repo includes an `nginx.conf` that terminates TLS on port 443 with secure defaults (TLS 1.2/1.3, modern ciphers, HSTS) and redirects port 80 → 443. It expects certs at:
+This repo includes an `nginx.conf` that terminates TLS on port 443 with secure defaults (TLS 1.2/1.3, modern ciphers, HSTS) and redirects port 80 → 443 while still serving ACME HTTP‑01 challenges. It expects certs at:
 
 - `/etc/nginx/certs/server.crt`
 - `/etc/nginx/certs/server.key`
@@ -141,7 +137,7 @@ The production compose file mounts `./certs` into that path. Ensure you place yo
 scp -r certs $DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_APP_DIR/
 ```
 
-If you use Let’s Encrypt, copy the fullchain and privkey into `certs/server.crt` and `certs/server.key` respectively (or adjust the nginx paths).
+If you use Let’s Encrypt, the deploy workflow will copy the `fullchain` and `privkey` into `certs/server.crt` and `certs/server.key` respectively. If managing certs manually, copy them into those filenames, or adjust the Nginx paths accordingly.
 
 ## Monitoring and Maintenance
 
