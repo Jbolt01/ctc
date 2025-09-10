@@ -34,13 +34,13 @@ export default function GoogleAuthButton({ onSignedIn }: { onSignedIn: () => voi
     let res = await fetch('/api/v1/auth/login', {
       method: 'POST',
       headers,
-      body: JSON.stringify({ openid_sub, email, name }),
+      body: JSON.stringify({ id_token: resp.credential, openid_sub, email, name }),
     });
     if (res.status === 401) {
       res = await fetch('/api/v1/auth/register', {
         method: 'POST',
         headers,
-        body: JSON.stringify({ openid_sub, email, name }),
+        body: JSON.stringify({ id_token: resp.credential, openid_sub, email, name }),
       });
     }
     if (!res.ok) return;
@@ -75,4 +75,3 @@ export default function GoogleAuthButton({ onSignedIn }: { onSignedIn: () => voi
     </>
   );
 }
-
