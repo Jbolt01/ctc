@@ -84,8 +84,8 @@ describe('AdminPage authorization and navigation', () => {
     await renderAdmin()
     expect(screen.getByText(/ADMIN CONSOLE/i)).toBeInTheDocument()
     // Default tab = Users
-    expect(screen.getByRole('heading', { level: 2, name: 'Users' })).toBeInTheDocument()
-    expect(screen.getByText('Toggle admin access for users')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { level: 2, name: 'Users' })).toBeInTheDocument()
+    expect(await screen.findByText('Toggle admin access for users')).toBeInTheDocument()
 
     // Switch to Teams
     await userEvent.click(screen.getByRole('button', { name: 'Teams' }))
