@@ -50,6 +50,7 @@ def test_register_create_unique_team_names(test_app: TestClient) -> None:
     assert r2.status_code == 200
     t2 = r2.json()["teams"][0]
     assert t2["name"] != t1["name"]
+    assert t2["name"].startswith(t1["name"]) or t2["name"].endswith(")")
 
 
 def test_register_join_team_via_code(test_app: TestClient) -> None:

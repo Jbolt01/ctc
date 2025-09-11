@@ -326,7 +326,8 @@ async def _ensure_unique_team_name(session: AsyncSession, base_name: str) -> str
     # If a team with base_name exists, append (2), (3), ... until unique
     name = base_name
     i = 2
-    while await session.scalar(select(TeamModel).where(TeamModel.name == name)):
+    # Only select a simple column to avoid loading all mapped fields
+    while await session.scalar(select(TeamModel.id).where(TeamModel.name == name)):
         name = f"{base_name} ({i})"
         i += 1
     return name
