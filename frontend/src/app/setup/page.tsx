@@ -31,7 +31,7 @@ export default function SetupPage() {
     } catch {
       router.push('/');
     }
-  }, [router]);
+  }, []);
 
   const canSubmit = useMemo(() => {
     if (!pending) return false;
@@ -139,4 +139,3 @@ export default function SetupPage() {
     </div>
   );
 }
-

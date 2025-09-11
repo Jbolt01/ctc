@@ -1,10 +1,12 @@
 import React from 'react'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import Page from './page'
 
-// Mock router
+// Mock router with stable identity across renders
 const pushMock = jest.fn()
-jest.mock('next/navigation', () => ({ useRouter: () => ({ push: pushMock }) }))
+const mockRouter = { push: pushMock }
+jest.mock('next/navigation', () => ({ useRouter: () => mockRouter }))
 
 // Minimal fetch mock
 beforeEach(() => {
@@ -28,7 +30,6 @@ describe('SetupPage', () => {
   // Increase Jest timeout for slower CI machines
   jest.setTimeout(20000)
   it('creates a team and redirects', async () => {
-    const Page = (await import('./page')).default
     render(<Page />)
     const nameInput = await screen.findByPlaceholderText('e.g., Alpha')
     await userEvent.type(nameInput, 'Alpha')
@@ -38,7 +39,6 @@ describe('SetupPage', () => {
   })
 
   it('joins a team when join code entered', async () => {
-    const Page = (await import('./page')).default
     render(<Page />)
     await userEvent.click(screen.getByRole('button', { name: 'Join Team' }))
     const codeInput = await screen.findByPlaceholderText('e.g., 1A2B3C4D')

@@ -5,14 +5,8 @@ import { useMarketData } from './useMarketData'
 declare const global: any
 
 describe('useMarketData', () => {
-  beforeAll(() => {
-    jest.useFakeTimers()
-  })
-  afterAll(() => {
-    // Ensure we don't leak fake timers into other test suites
-    jest.useRealTimers()
-  })
   beforeEach(() => {
+    jest.useFakeTimers()
     // reset instances
     if (global.WebSocket?.instances) {
       global.WebSocket.instances.length = 0
