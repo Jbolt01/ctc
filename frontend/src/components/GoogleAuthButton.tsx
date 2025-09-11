@@ -54,7 +54,7 @@ export default function GoogleAuthButton({ onSignedIn }: { onSignedIn: () => voi
     localStorage.setItem('user', JSON.stringify(data.user));
     localStorage.setItem('teams', JSON.stringify(data.teams ?? []));
     onSignedIn();
-  }, [onSignedIn]);
+  }, [onSignedIn, router]);
 
   useEffect(() => {
     if (!ready || !clientId || !btnRef.current) return;

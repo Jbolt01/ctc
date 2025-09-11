@@ -9,7 +9,18 @@ const jestBin = resolve(__dirname, 'node_modules', 'jest', 'bin', 'jest.js')
 // Forward CLI args (after the `--`) to Jest; also add CI-friendly defaults
 const forwarded = process.argv.slice(2).filter((a) => a !== '--')
 const base = ['--ci', '--runInBand', '--forceExit', '--colors']
-const args = [...base, ...forwarded]
+
+// Insert "--" before the first non-flag arg to disambiguate test path patterns
+const args = [...base]
+let insertedSeparator = false
+for (const a of forwarded) {
+  const isFlag = a.startsWith('-')
+  if (!isFlag && !insertedSeparator) {
+    args.push('--')
+    insertedSeparator = true
+  }
+  args.push(a)
+}
 
 const child = spawn(process.execPath, [jestBin, ...args], { stdio: 'inherit' })
 child.on('exit', (code) => process.exit(code ?? 1))

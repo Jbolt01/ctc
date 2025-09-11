@@ -8,7 +8,6 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from src.db.models import APIKey as APIKeyModel
-from src.db.models import Team as TeamModel
 from src.db.session import get_db_session
 
 
@@ -100,4 +99,3 @@ def test_register_join_team_via_code(test_app: TestClient) -> None:
         },
     )
     assert bad.status_code == 404
-
