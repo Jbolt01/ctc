@@ -26,11 +26,15 @@ async def seed_initial_symbols(session: AsyncSession) -> None:
 
 
 def attach_lifecycle(app: FastAPI) -> None:
+    from src.app.config import settings
+
     @app.on_event("startup")
     async def _startup() -> None:
-        async with SessionLocal() as session:
-            await seed_initial_symbols(session)
-            await seed_demo_data(session)
+        # Seeding is disabled by default; enable via SEED_ON_STARTUP=true if needed for demos
+        if getattr(settings, "seed_on_startup", False):
+            async with SessionLocal() as session:
+                await seed_initial_symbols(session)
+                await seed_demo_data(session)
 
 
 async def _ensure_team(session: AsyncSession, name: str) -> Team:
@@ -149,4 +153,3 @@ async def seed_demo_data(session: AsyncSession) -> None:
     await exch.place_and_match(session, db_order=aapl_ask_rest, symbol_code="AAPL")
 
     await session.commit()
-

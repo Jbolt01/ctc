@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     # Google Identity (frontend passes NEXT_PUBLIC_GOOGLE_CLIENT_ID)
     google_client_id: str | None = Field(default=None, alias="NEXT_PUBLIC_GOOGLE_CLIENT_ID")
     admin_emails_raw: str | None = Field(default=None, alias="ADMIN_EMAILS")
+    seed_on_startup: bool = Field(default=False, alias="SEED_ON_STARTUP")
 
     @property
     def admin_emails(self) -> set[str]:

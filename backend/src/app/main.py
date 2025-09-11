@@ -710,18 +710,9 @@ class SymbolsResponse(BaseModel):
     symbols: list[SymbolInfo]
 
 
-_SYMBOLS: list[SymbolInfo] = [
-    SymbolInfo(symbol="AAPL", name="Apple Inc."),
-    SymbolInfo(symbol="GOOGL", name="Alphabet Inc."),
-]
-
-
 @api_router.get("/symbols", response_model=SymbolsResponse)
 async def get_symbols(api_key: RequireAPIKey, session: DbSession) -> SymbolsResponse:
     rows = (await session.execute(select(SymbolModel.symbol, SymbolModel.name))).all()
-    if not rows:
-        # fallback to in-memory defaults
-        return SymbolsResponse(symbols=_SYMBOLS)
     return SymbolsResponse(symbols=[SymbolInfo(symbol=s, name=n) for s, n in rows])
 
 

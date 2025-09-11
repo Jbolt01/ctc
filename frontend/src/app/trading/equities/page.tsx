@@ -98,7 +98,7 @@ export default function EquitiesTradingPage() {
   
   const qc = useQueryClient();
   const { data: symbols } = useSymbols();
-  const symbolOptions = symbols?.symbols ?? [];
+  const symbolOptions = useMemo(() => symbols?.symbols ?? [], [symbols?.symbols]);
   const hasSymbols = symbolOptions.length > 0;
   useEffect(() => {
     if (!symbol && hasSymbols) setSymbol(symbolOptions[0].symbol);
@@ -229,7 +229,6 @@ export default function EquitiesTradingPage() {
             <p className="text-gray-300 font-mono">No symbols available. Ask an admin to add symbols on the Admin page.</p>
           </div>
         ) : (
-        {/* Main Trading Grid */}
         <div className="grid gap-6 lg:grid-cols-4">
           {/* Left Column - Charts */}
           <div className="space-y-6 lg:col-span-2">
