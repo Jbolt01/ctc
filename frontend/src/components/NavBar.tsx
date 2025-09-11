@@ -3,6 +3,8 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import clsx from 'clsx';
+// Lazy-load admin API to probe admin status when mounted
+// Avoid import cycles at module init
 
 interface User {
   id: string;
@@ -25,6 +27,7 @@ export default function NavBar() {
   const [user, setUser] = useState<User | null>(null);
   const [teams, setTeams] = useState<Team[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     const userData = localStorage.getItem('user');
@@ -36,6 +39,25 @@ export default function NavBar() {
     if (teamsData) {
       setTeams(JSON.parse(teamsData));
     }
+  }, []);
+
+  // Probe admin access by calling an admin-protected endpoint
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const apiKey = localStorage.getItem('apiKey');
+        if (!apiKey) return;
+        const mod = await import('../lib/api');
+        await mod.adminListUsers();
+        if (!cancelled) setIsAdmin(true);
+      } catch {
+        if (!cancelled) setIsAdmin(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleLogout = () => {
@@ -67,6 +89,20 @@ export default function NavBar() {
             >
               Equities
             </Link>
+            {isAdmin && (
+              <Link
+                href="/admin"
+                className={clsx(
+                  'rounded-lg px-4 py-2 font-mono font-medium transition-all duration-200 hover:bg-gray-800/60 hover:text-amber-300 border border-transparent hover:border-gray-700/50',
+                  pathname === '/admin'
+                    ? 'bg-amber-900/30 text-amber-300 border-amber-500/50 shadow-lg shadow-amber-500/10'
+                    : 'text-gray-300 hover:shadow-lg hover:shadow-gray-800/20'
+                )}
+                title="Admin Console"
+              >
+                Admin
+              </Link>
+            )}
           </nav>
 
           {user ? (
