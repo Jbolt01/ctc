@@ -1181,7 +1181,12 @@ async def admin_set_user_admin(
     user_id: str, payload: SetAdminIn, session: DbSession
 ) -> dict[str, str]:
     # Set is_admin for API keys of all teams the user belongs to
-    user = await session.get(UserModel, user_id)
+    _uid: _Any
+    try:
+        _uid = _uuid.UUID(str(user_id))
+    except Exception:
+        _uid = user_id
+    user = await session.get(UserModel, _uid)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     team_ids = (
