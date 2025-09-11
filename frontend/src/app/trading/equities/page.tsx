@@ -41,32 +41,35 @@ function usePositions() {
 }
 
 function useTrades(symbol: string) {
-  return useQuery({ 
-    queryKey: ['trades', symbol], 
+  return useQuery({
+    queryKey: ['trades', symbol],
     queryFn: () => fetchTrades(symbol),
-    refetchInterval: 1000 
+    refetchInterval: 1000,
+    enabled: !!symbol,
   });
 }
 
 function useMarketTrades(symbol: string) {
-  return useQuery({ 
-    queryKey: ['marketTrades', symbol], 
+  return useQuery({
+    queryKey: ['marketTrades', symbol],
     queryFn: () => fetchMarketTrades(symbol),
-    refetchInterval: 1000 
+    refetchInterval: 1000,
+    enabled: !!symbol,
   });
 }
 
 function useAllOrders(symbol: string) {
-  return useQuery({ 
-    queryKey: ['orders', 'all', symbol], 
+  return useQuery({
+    queryKey: ['orders', 'all', symbol],
     queryFn: () => fetchAllOrders(undefined, symbol),
-    refetchInterval: 1000 
+    refetchInterval: 1000,
+    enabled: !!symbol,
   });
 }
 
 export default function EquitiesTradingPage() {
   const router = useRouter();
-  const [symbol, setSymbol] = useState('AAPL');
+  const [symbol, setSymbol] = useState('');
   const [side, setSide] = useState<'buy' | 'sell'>('buy');
   const [type, setType] = useState<'market' | 'limit'>('limit');
   const [qty, setQty] = useState(100);
@@ -95,6 +98,11 @@ export default function EquitiesTradingPage() {
   
   const qc = useQueryClient();
   const { data: symbols } = useSymbols();
+  const symbolOptions = symbols?.symbols ?? [];
+  const hasSymbols = symbolOptions.length > 0;
+  useEffect(() => {
+    if (!symbol && hasSymbols) setSymbol(symbolOptions[0].symbol);
+  }, [hasSymbols, symbol, symbolOptions]);
   const { quote, orderbook: ob } = useMarketData(symbol, ['quotes', 'orderbook', 'trades']);
   const { data: positions } = usePositions();
   const { data: trades } = useTrades(symbol);  // Team-filtered trades for recent trades panel
@@ -139,7 +147,7 @@ export default function EquitiesTradingPage() {
   };
 
   const handlePlaceOrder = async () => {
-    if (!qty || (type === 'limit' && !price)) return;
+    if (!symbol || !qty || (type === 'limit' && !price)) return;
     
     await placeOrderMutation.mutateAsync({ 
       symbol, 
@@ -194,17 +202,33 @@ export default function EquitiesTradingPage() {
           </div>
           <select 
             className="rounded-lg border border-gray-700 bg-gray-800/50 backdrop-blur-sm px-6 py-3 text-lg font-mono font-medium text-white shadow-lg transition-all hover:border-blue-500 hover:bg-gray-800/70 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 focus:outline-none" 
-            value={symbol} 
+            value={symbol}
             onChange={(e) => setSymbol(e.target.value)}
+            disabled={!hasSymbols}
           >
-            {(symbols?.symbols ?? [{ symbol: 'AAPL', name: 'Apple Inc.' }]).map((s) => (
-              <option key={s.symbol} value={s.symbol} className="bg-gray-800 text-white">
-                {s.symbol} — {s.name}
-              </option>
-            ))}
+            {hasSymbols ? (
+              symbolOptions.map((s) => (
+                <option key={s.symbol} value={s.symbol} className="bg-gray-800 text-white">
+                  {s.symbol} — {s.name}
+                </option>
+              ))
+            ) : (
+              <option value="" className="bg-gray-800 text-white">No symbols available</option>
+            )}
           </select>
         </div>
 
+        {/* Empty-state if no symbols */}
+        {!hasSymbols ? (
+          <div className="mt-8 rounded-xl border border-gray-700/50 bg-gray-900/50 p-10 text-center">
+            <div className="mx-auto mb-4 h-16 w-16 rounded-full border-2 border-cyan-500/40 flex items-center justify-center">
+              <svg className="h-8 w-8 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+            </div>
+            <p className="text-gray-300 font-mono">No symbols available. Ask an admin to add symbols on the Admin page.</p>
+          </div>
+        ) : (
         {/* Main Trading Grid */}
         <div className="grid gap-6 lg:grid-cols-4">
           {/* Left Column - Charts */}
@@ -248,6 +272,7 @@ export default function EquitiesTradingPage() {
             <TradesPanel trades={trades?.trades || []} />
           </div>
         </div>
+        )}
       </main>
     </div>
   );
