@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import secrets
 import uuid as _uuid
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
@@ -434,7 +436,7 @@ async def login(request: LoginRequest, session: DbSession) -> LoginResponse:
         user.name = new_name
         await session.commit()
 
-    # Get user's teams and API key
+    # Get user's teams and create a fresh API key for the first team
     teams_query = select(
         TeamModel.id,
         TeamModel.name,
@@ -450,10 +452,20 @@ async def login(request: LoginRequest, session: DbSession) -> LoginResponse:
 
     if not team_row:
         raise HTTPException(status_code=404, detail="No teams found for user")
-
-    # In a real system, you'd have a way to retrieve the original API key
-    # For now, we'll use a deterministic approach based on the hash
-    api_key_value = f"key_{team_row.key_hash[:16]}"
+    # Issue a new API key since originals are not retrievable from hashes
+    # imports moved to module scope to satisfy import sorting rules
+    team_id = team_row.id
+    api_key_value = secrets.token_urlsafe(32)
+    api_key_hash = hashlib.sha256(api_key_value.encode()).hexdigest()
+    is_admin = (user.email.lower() in settings.admin_emails) if user.email else False
+    new_key = APIKeyModel(
+        key_hash=api_key_hash,
+        team_id=team_id,
+        name=f"Login key for {user.email}",
+        is_admin=is_admin,
+    )
+    session.add(new_key)
+    await session.commit()
 
     # Get all user's teams
     all_teams_query = select(
