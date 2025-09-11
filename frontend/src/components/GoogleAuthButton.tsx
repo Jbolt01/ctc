@@ -2,6 +2,7 @@
 
 import Script from 'next/script';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 type GoogleCredentialResponse = { credential?: string };
 
@@ -19,6 +20,7 @@ export default function GoogleAuthButton({ onSignedIn }: { onSignedIn: () => voi
   const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
   const [ready, setReady] = useState(false);
   const btnRef = useRef<HTMLDivElement>(null);
+  const router = useRouter();
 
   const handleCredential = useCallback(async (resp: GoogleCredentialResponse) => {
     if (!resp.credential) return;
@@ -29,7 +31,7 @@ export default function GoogleAuthButton({ onSignedIn }: { onSignedIn: () => voi
     const email = (payload.email ?? '') as string;
     const name = (payload.name ?? email.split('@')[0]) as string;
 
-    // Try login first; if not found, register
+    // Try login first; if not found, redirect to setup to choose team action
     const headers = { 'Content-Type': 'application/json' };
     let res = await fetch('/api/v1/auth/login', {
       method: 'POST',
@@ -37,11 +39,12 @@ export default function GoogleAuthButton({ onSignedIn }: { onSignedIn: () => voi
       body: JSON.stringify({ id_token: resp.credential, openid_sub, email, name }),
     });
     if (res.status === 401) {
-      res = await fetch('/api/v1/auth/register', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ id_token: resp.credential, openid_sub, email, name }),
-      });
+      // Store pending identity and send the user to setup
+      try {
+        localStorage.setItem('pendingRegistration', JSON.stringify({ id_token: resp.credential, openid_sub, email, name }));
+      } catch {}
+      router.push('/setup');
+      return;
     }
     if (!res.ok) return;
     const data = await res.json();

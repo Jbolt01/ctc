@@ -39,6 +39,8 @@ class Team(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    # Short, shareable join code for users to join a team during registration
+    join_code: Mapped[str] = mapped_column(String(16), unique=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
 
 

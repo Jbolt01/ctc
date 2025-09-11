@@ -298,6 +298,10 @@ class LoginRequest(BaseModel):
     openid_sub: str | None = None
     email: str | None = None
     name: str | None = None
+    # Team onboarding fields (optional, for registration)
+    team_action: Literal["create", "join"] | None = None
+    team_name: str | None = None
+    join_code: str | None = None
 
 class LoginResponse(BaseModel):
     user: UserResponse
@@ -313,9 +317,29 @@ class JoinTeamRequest(BaseModel):
 
 
 # Authentication Endpoints
+def _generate_join_code() -> str:
+    # Short, shareable, uppercased code
+    return secrets.token_urlsafe(6).replace("-", "").replace("_", "").upper()[:8]
+
+
+async def _ensure_unique_team_name(session: AsyncSession, base_name: str) -> str:
+    # If a team with base_name exists, append (2), (3), ... until unique
+    name = base_name
+    i = 2
+    while await session.scalar(select(TeamModel).where(TeamModel.name == name)):
+        name = f"{base_name} ({i})"
+        i += 1
+    return name
+
+
 @api_router.post("/auth/register", response_model=LoginResponse)
 async def register(request: LoginRequest, session: DbSession) -> LoginResponse:
-    """Register a new user and create default team"""
+    """Register a new user and either create a team or join via code.
+
+    Backward-compatible defaults:
+    - If team_action not provided, create a team with a unique name derived from user's name.
+    - Ensure team name uniqueness to avoid IntegrityError on duplicates.
+    """
     import hashlib
     import secrets
 
@@ -357,18 +381,30 @@ async def register(request: LoginRequest, session: DbSession) -> LoginResponse:
     session.add(user)
     await session.flush()  # Get the user ID
 
-    # Create a default team for the user
-    team = TeamModel(name=f"{name}'s Team")
-    session.add(team)
-    await session.flush()
-
-    # Add user to the team as admin
-    team_member = TeamMemberModel(
-        team_id=team.id,
-        user_id=user.id,
-        role="admin"
-    )
-    session.add(team_member)
+    # Determine onboarding action
+    action = (request.team_action or "create").lower()
+    team: TeamModel
+    if action == "join":
+        code = (request.join_code or "").strip().upper()
+        if not code:
+            raise HTTPException(status_code=400, detail="Missing join_code for team join")
+        team_row = await session.scalar(select(TeamModel).where(TeamModel.join_code == code))
+        if not team_row:
+            raise HTTPException(status_code=404, detail="Invalid join code")
+        team = team_row
+        # Add user to the team as member
+        team_member = TeamMemberModel(team_id=team.id, user_id=user.id, role="member")
+        session.add(team_member)
+    else:
+        # Create a new team with unique name
+        base_name = request.team_name or f"{name}'s Team"
+        unique_name = await _ensure_unique_team_name(session, base_name)
+        team = TeamModel(name=unique_name, join_code=_generate_join_code())
+        session.add(team)
+        await session.flush()
+        # Add user as admin
+        team_member = TeamMemberModel(team_id=team.id, user_id=user.id, role="admin")
+        session.add(team_member)
 
     # Create API key for the team
     api_key_value = secrets.token_urlsafe(32)
@@ -385,11 +421,9 @@ async def register(request: LoginRequest, session: DbSession) -> LoginResponse:
     await session.commit()
 
     # Get user's teams
-    teams = [TeamResponse(
-        id=str(team.id),
-        name=team.name,
-        role="admin"
-    )]
+    # Determine role used when joining/creating above
+    role = "admin" if action != "join" else "member"
+    teams = [TeamResponse(id=str(team.id), name=team.name, role=role)]
 
     return LoginResponse(
         user=UserResponse(
@@ -517,7 +551,8 @@ async def create_team(
         raise HTTPException(status_code=404, detail="User not found")
 
     # Create new team
-    team = TeamModel(name=request.name)
+    # Create with a fresh join code
+    team = TeamModel(name=request.name, join_code=_generate_join_code())
     session.add(team)
     await session.flush()
 
@@ -1026,7 +1061,7 @@ class TeamIn(BaseModel):
 async def create_team_admin(payload: TeamIn, session: DbSession) -> dict[str, str]:
     if await session.scalar(select(TeamModel).where(TeamModel.name == payload.name)):
         raise HTTPException(status_code=409, detail="Team exists")
-    team = TeamModel(name=payload.name)
+    team = TeamModel(name=payload.name, join_code=_generate_join_code())
     session.add(team)
     await session.commit()
     return {"id": str(team.id)}
@@ -1034,8 +1069,8 @@ async def create_team_admin(payload: TeamIn, session: DbSession) -> dict[str, st
 
 @admin_router.get("/teams")
 async def list_teams(session: DbSession) -> list[dict[str, Any]]:
-    rows = (await session.execute(select(TeamModel.id, TeamModel.name))).all()
-    return [{"id": str(r.id), "name": r.name} for r in rows]
+    rows = (await session.execute(select(TeamModel.id, TeamModel.name, TeamModel.join_code))).all()
+    return [{"id": str(r.id), "name": r.name, "join_code": r.join_code} for r in rows]
 
 
 class CompetitionIn(BaseModel):

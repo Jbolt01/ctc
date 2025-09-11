@@ -8,6 +8,10 @@ describe('useMarketData', () => {
   beforeAll(() => {
     jest.useFakeTimers()
   })
+  afterAll(() => {
+    // Ensure we don't leak fake timers into other test suites
+    jest.useRealTimers()
+  })
   beforeEach(() => {
     // reset instances
     if (global.WebSocket?.instances) {

@@ -353,7 +353,7 @@ function SymbolsPanel() {
 }
 
 function TeamsPanel() {
-  const [teams, setTeams] = useState<Array<{ id: string; name: string }>>([]);
+  const [teams, setTeams] = useState<Array<{ id: string; name: string; join_code?: string }>>([]);
   const [name, setName] = useState('');
   const load = async () => setTeams(await adminListTeams());
   useEffect(() => { load(); }, []);
@@ -373,7 +373,14 @@ function TeamsPanel() {
       </div>
       <div className="grid gap-2">
         {teams.map(t => (
-          <div key={t.id} className="bg-gray-800/50 border border-gray-700 rounded px-3 py-2 text-white font-mono">{t.name}</div>
+          <div key={t.id} className="bg-gray-800/50 border border-gray-700 rounded px-3 py-2 text-white font-mono flex items-center justify-between">
+            <div className="font-bold">{t.name}</div>
+            {t.join_code && (
+              <div className="text-xs text-cyan-300">
+                Join code: <span className="font-mono tracking-wider">{t.join_code}</span>
+              </div>
+            )}
+          </div>
         ))}
       </div>
     </div>

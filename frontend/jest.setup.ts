@@ -37,6 +37,11 @@ class MockWebSocket {
 // @ts-ignore
 global.WebSocket = MockWebSocket as any
 
+// Always reset timers to real after each test to avoid leaks
+afterEach(() => {
+  try { jest.useRealTimers() } catch {}
+})
+
 // jsdom doesn't implement confirm; default to 'true' in tests
 // @ts-ignore
 try {
