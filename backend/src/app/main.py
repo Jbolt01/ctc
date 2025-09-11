@@ -9,7 +9,7 @@ import anyio._backends._asyncio  # noqa: F401
 from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.routing import APIRouter
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.config import settings
@@ -791,61 +791,79 @@ async def delete_symbol(symbol: str, session: DbSession) -> dict[str, str]:
     if not row:
         raise HTTPException(status_code=404, detail="Not found")
 
-    # Check for dependent rows to avoid FK violations
-    sym_id = row.id
-    orders_cnt = await session.scalar(
-        select(func.count()).select_from(OrderModel).where(OrderModel.symbol_id == sym_id)
-    )
-    trades_cnt = await session.scalar(
-        select(func.count()).select_from(TradeModel).where(TradeModel.symbol_id == sym_id)
-    )
-    positions_cnt = await session.scalar(
-        select(func.count()).select_from(PositionModel).where(PositionModel.symbol_id == sym_id)
-    )
-    md_cnt = await session.scalar(
-        select(func.count()).select_from(MarketDataModel).where(MarketDataModel.symbol_id == sym_id)
-    )
-    from src.db.models import TradingHours as TradingHoursModel  # local import to avoid cycles
-    hours_cnt = await session.scalar(
-        select(func.count())
-        .select_from(TradingHoursModel)
-        .where(TradingHoursModel.symbol_id == sym_id)
-    )
-    from src.db.models import PositionLimit as PositionLimitModel  # local import to avoid cycles
-    limits_cnt = await session.scalar(
-        select(func.count())
-        .select_from(PositionLimitModel)
-        .where(PositionLimitModel.symbol_id == sym_id)
-    )
-    # Any symbols referencing this as underlying
-    derivatives_cnt = await session.scalar(
-        select(func.count()).select_from(SymbolModel).where(SymbolModel.underlying_id == sym_id)
-    )
+    # Cascade-delete this symbol and any derivatives (underlyings)
+    from src.db.models import PositionLimit as PositionLimitModel
+    from src.db.models import TradingHours as TradingHoursModel  # local import
 
-    total_refs = sum(
-        int(x or 0)
-        for x in (
-            orders_cnt,
-            trades_cnt,
-            positions_cnt,
-            md_cnt,
-            hours_cnt,
-            limits_cnt,
-            derivatives_cnt,
-        )
-    )
-    if total_refs > 0:
-        detail = (
-            f"Symbol in use (orders={int(orders_cnt or 0)}, trades={int(trades_cnt or 0)}, "
-            f"positions={int(positions_cnt or 0)}, market_data={int(md_cnt or 0)}, "
-            f"hours={int(hours_cnt or 0)}, limits={int(limits_cnt or 0)}, "
-            f"derivatives={int(derivatives_cnt or 0)})"
-        )
-        raise HTTPException(status_code=409, detail=detail)
+    # Collect all symbol ids to delete (this symbol + derived chain)
+    to_delete: list[Any] = []
+    stack: list[Any] = [row.id]
+    while stack:
+        sid = stack.pop()
+        to_delete.append(sid)
+        child_ids = (
+            await session.execute(select(SymbolModel.id).where(SymbolModel.underlying_id == sid))
+        ).scalars().all()
+        stack.extend(child_ids)
 
-    await session.delete(row)
-    await session.commit()
+    if to_delete:
+        # Delete dependent rows in FK-safe order
+        await session.execute(delete(TradeModel).where(TradeModel.symbol_id.in_(to_delete)))
+        await session.execute(delete(OrderModel).where(OrderModel.symbol_id.in_(to_delete)))
+        await session.execute(
+            delete(PositionModel).where(PositionModel.symbol_id.in_(to_delete))
+        )
+        await session.execute(
+            delete(MarketDataModel).where(MarketDataModel.symbol_id.in_(to_delete))
+        )
+        await session.execute(
+            delete(TradingHoursModel).where(TradingHoursModel.symbol_id.in_(to_delete))
+        )
+        await session.execute(
+            delete(PositionLimitModel).where(PositionLimitModel.symbol_id.in_(to_delete))
+        )
+        await session.execute(delete(SymbolModel).where(SymbolModel.id.in_(to_delete)))
+        await session.commit()
     return {"status": "deleted"}
+
+
+@admin_router.post("/reset-exchange")
+async def reset_exchange(session: DbSession) -> dict[str, str]:
+    """Purge all exchange data: orders, trades, positions, market data, limits, hours, symbols."""
+    from src.db.models import PositionLimit as PositionLimitModel
+    from src.db.models import TradingHours as TradingHoursModel
+
+    await session.execute(delete(TradeModel))
+    await session.execute(delete(OrderModel))
+    await session.execute(delete(PositionModel))
+    await session.execute(delete(MarketDataModel))
+    await session.execute(delete(TradingHoursModel))
+    await session.execute(delete(PositionLimitModel))
+    await session.execute(delete(SymbolModel))
+    await session.commit()
+    return {"status": "ok"}
+
+
+@admin_router.post("/reset-users")
+async def reset_users(session: DbSession) -> dict[str, str]:
+    """Purge all user/team data and their related records."""
+    from src.db.models import Competition as CompetitionModel
+    from src.db.models import CompetitionTeam as CompetitionTeamModel
+
+    # Remove team-related trading records first
+    await session.execute(delete(TradeModel))
+    await session.execute(delete(OrderModel))
+    await session.execute(delete(PositionModel))
+    # Remove competitions/team links
+    await session.execute(delete(CompetitionTeamModel))
+    await session.execute(delete(APIKeyModel))
+    await session.execute(delete(TeamMemberModel))
+    await session.execute(delete(TeamModel))
+    await session.execute(delete(UserModel))
+    # Optionally clear competitions as well
+    await session.execute(delete(CompetitionModel))
+    await session.commit()
+    return {"status": "ok"}
 
 
 # Orders: open orders endpoint

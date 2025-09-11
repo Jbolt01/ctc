@@ -200,3 +200,11 @@ export type AdminSymbol = {
 export function adminListSymbols() {
   return apiGet<AdminSymbol[]>(`/api/v1/admin/symbols`);
 }
+
+// Admin: Resets
+export function adminResetExchange() {
+  return apiPost(`/api/v1/admin/reset-exchange`, {});
+}
+export function adminResetUsers() {
+  return apiPost(`/api/v1/admin/reset-users`, {});
+}

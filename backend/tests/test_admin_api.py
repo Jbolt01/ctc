@@ -86,8 +86,8 @@ def test_admin_symbols_crud_and_controls(test_app: TestClient, admin_key: str) -
     assert r6.status_code == 200 and r6.json()["status"] == "deleted"
 
 
-def test_admin_delete_symbol_conflict_with_orders(test_app: TestClient, admin_key: str) -> None:
-    # Create a new symbol and place an order referencing it, then attempt deletion
+def test_admin_delete_symbol_cascade_with_orders(test_app: TestClient, admin_key: str) -> None:
+    # Create a new symbol and place an order referencing it, then delete should cascade
     create = test_app.post(
         "/api/v1/admin/symbols",
         headers=_headers(admin_key),
@@ -109,14 +109,13 @@ def test_admin_delete_symbol_conflict_with_orders(test_app: TestClient, admin_ke
     )
     assert order.status_code == 200
 
-    # Deletion should fail with 409 and a helpful detail
+    # Deletion should succeed and cascade
     delete = test_app.delete("/api/v1/admin/symbols/STP2", headers=_headers(admin_key))
-    assert delete.status_code == 409
-    assert "Symbol in use" in delete.json().get("detail", "")
+    assert delete.status_code == 200
 
-    # Verify symbol still present
+    # Verify symbol removed
     ls = test_app.get("/api/v1/admin/symbols", headers=_headers(admin_key))
-    assert any(row["symbol"] == "STP2" for row in ls.json())
+    assert all(row["symbol"] != "STP2" for row in ls.json())
 
 
 def test_admin_limits_and_hours_crud(test_app: TestClient, admin_key: str) -> None:
@@ -205,3 +204,52 @@ def test_admin_teams_competitions_users_marketdata(test_app: TestClient, admin_k
         json={"symbol": "AAPL", "close": 123.45},
     )
     assert md.status_code == 200 and md.json()["status"] == "ok"
+
+
+def test_admin_resets(test_app: TestClient, admin_key: str) -> None:
+    # Create extra symbol and user/team, then reset
+    cs = test_app.post(
+        "/api/v1/admin/symbols",
+        headers=_headers(admin_key),
+        json={
+            "symbol": "ZZZ",
+            "name": "Zeta",
+            "symbol_type": "equity",
+            "tick_size": 0.01,
+            "lot_size": 1,
+        },
+    )
+    assert cs.status_code == 200
+    # Place order on ZZZ
+    po = test_app.post(
+        "/api/v1/orders",
+        headers=_headers(admin_key),
+        json={"symbol": "ZZZ", "side": "buy", "order_type": "limit", "quantity": 5, "price": 1.0},
+    )
+    assert po.status_code == 200
+
+    # Reset exchange: removes symbols and related rows
+    rx = test_app.post("/api/v1/admin/reset-exchange", headers=_headers(admin_key))
+    assert rx.status_code == 200
+    # Admin symbols should be empty now
+    ls = test_app.get("/api/v1/admin/symbols", headers=_headers(admin_key))
+    assert ls.status_code == 200
+    assert ls.json() == []
+
+    # Create a user and team; then reset users
+    reg = test_app.post(
+        "/api/v1/auth/register",
+        json={"openid_sub": "alpha", "email": "alpha@example.com", "name": "Alpha"},
+    )
+    assert reg.status_code == 200
+    key = reg.json()["api_key"]
+    t = test_app.post(
+        "/api/v1/auth/teams", headers=_headers(key), json={"name": "TeamA"}
+    )
+    assert t.status_code == 200
+
+    ru = test_app.post("/api/v1/admin/reset-users", headers=_headers(admin_key))
+    assert ru.status_code == 200
+    # Previous admin key should now be invalid for admin-only endpoints
+    gu = test_app.get("/api/v1/admin/users", headers=_headers(admin_key))
+    assert gu.status_code in (401, 403)

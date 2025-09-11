@@ -63,7 +63,44 @@ export default function AdminPage() {
             </h1>
             <p className="mt-2 text-gray-400 font-mono">Full control over your exchange</p>
           </div>
-          <Link href="/trading/equities" className="text-cyan-400 font-mono hover:underline">Back to Trading</Link>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={async () => {
+                try {
+                  const isJsdom = typeof navigator !== 'undefined' && /jsdom/i.test(navigator.userAgent || '')
+                  if (typeof window !== 'undefined' && typeof window.confirm === 'function' && !isJsdom) {
+                    if (!window.confirm('Reset exchange? This deletes ALL symbols, orders, trades, positions, limits, hours, and market data.')) return
+                  }
+                  const { adminResetExchange } = await import('../../lib/api')
+                  await adminResetExchange()
+                  // reload page state
+                  window.location.reload()
+                } catch (e) {
+                  console.error(e)
+                }
+              }}
+              className="px-3 py-1.5 border border-amber-500/40 text-amber-300 rounded font-mono bg-amber-900/30 hover:bg-amber-900/50"
+              title="Delete ALL exchange data"
+            >Reset Exchange</button>
+            <button
+              onClick={async () => {
+                try {
+                  const isJsdom = typeof navigator !== 'undefined' && /jsdom/i.test(navigator.userAgent || '')
+                  if (typeof window !== 'undefined' && typeof window.confirm === 'function' && !isJsdom) {
+                    if (!window.confirm('Reset users? This deletes ALL users, teams, API keys, competitions, and team links.')) return
+                  }
+                  const { adminResetUsers } = await import('../../lib/api')
+                  await adminResetUsers()
+                  window.location.reload()
+                } catch (e) {
+                  console.error(e)
+                }
+              }}
+              className="px-3 py-1.5 border border-red-500/40 text-red-300 rounded font-mono bg-red-900/30 hover:bg-red-900/50"
+              title="Delete ALL users/teams"
+            >Reset Users</button>
+            <Link href="/trading/equities" className="text-cyan-400 font-mono hover:underline">Back to Trading</Link>
+          </div>
         </header>
 
         <nav className="flex gap-2 mb-6">
