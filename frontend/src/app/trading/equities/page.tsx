@@ -32,38 +32,38 @@ import { useMarketData } from '../../../hooks/useMarketData';
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, TimeScale);
 
 // Custom hooks
-function useSymbols() {
-  return useQuery({ queryKey: ['symbols'], queryFn: fetchSymbols });
+function useSymbols(enabled = true) {
+  return useQuery({ queryKey: ['symbols'], queryFn: fetchSymbols, enabled });
 }
 
-function usePositions() {
-  return useQuery({ queryKey: ['positions'], queryFn: fetchPositions, refetchInterval: 2000 });
+function usePositions(enabled = true) {
+  return useQuery({ queryKey: ['positions'], queryFn: fetchPositions, refetchInterval: 2000, enabled });
 }
 
-function useTrades(symbol: string) {
+function useTrades(symbol: string, enabled = true) {
   return useQuery({
     queryKey: ['trades', symbol],
     queryFn: () => fetchTrades(symbol),
     refetchInterval: 1000,
-    enabled: !!symbol,
+    enabled: enabled && !!symbol,
   });
 }
 
-function useMarketTrades(symbol: string) {
+function useMarketTrades(symbol: string, enabled = true) {
   return useQuery({
     queryKey: ['marketTrades', symbol],
     queryFn: () => fetchMarketTrades(symbol),
     refetchInterval: 1000,
-    enabled: !!symbol,
+    enabled: enabled && !!symbol,
   });
 }
 
-function useAllOrders(symbol: string) {
+function useAllOrders(symbol: string, enabled = true) {
   return useQuery({
     queryKey: ['orders', 'all', symbol],
     queryFn: () => fetchAllOrders(undefined, symbol),
     refetchInterval: 1000,
-    enabled: !!symbol,
+    enabled: enabled && !!symbol,
   });
 }
 
@@ -97,17 +97,31 @@ export default function EquitiesTradingPage() {
   }, [router]);
   
   const qc = useQueryClient();
-  const { data: symbols } = useSymbols();
+  const { data: symbols, error: symbolsError } = useSymbols(isAuthenticated);
   const symbolOptions = useMemo(() => symbols?.symbols ?? [], [symbols?.symbols]);
   const hasSymbols = symbolOptions.length > 0;
   useEffect(() => {
     if (!symbol && hasSymbols) setSymbol(symbolOptions[0].symbol);
   }, [hasSymbols, symbol, symbolOptions]);
   const { quote, orderbook: ob } = useMarketData(symbol, ['quotes', 'orderbook', 'trades']);
-  const { data: positions } = usePositions();
-  const { data: trades } = useTrades(symbol);  // Team-filtered trades for recent trades panel
-  const { data: marketTrades } = useMarketTrades(symbol);  // All market trades for price chart
-  const { data: allOrders } = useAllOrders(symbol);
+  const { data: positions } = usePositions(isAuthenticated);
+  const { data: trades } = useTrades(symbol, isAuthenticated);  // Team-filtered trades for recent trades panel
+  const { data: marketTrades } = useMarketTrades(symbol, isAuthenticated);  // All market trades for price chart
+  const { data: allOrders } = useAllOrders(symbol, isAuthenticated);
+
+  // If the stored key is invalid or missing, bounce back to login
+  useEffect(() => {
+    if (!symbolsError) return;
+    const msg = String((symbolsError as any)?.message || '');
+    if (/401/.test(msg) || /Invalid API key/i.test(msg) || /Missing X-API-Key/i.test(msg)) {
+      try {
+        localStorage.removeItem('apiKey');
+        localStorage.removeItem('user');
+        localStorage.removeItem('teams');
+      } catch {}
+      router.push('/');
+    }
+  }, [symbolsError, router]);
 
   // Mutations for order operations
   const placeOrderMutation = useMutation({

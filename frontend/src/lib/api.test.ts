@@ -8,9 +8,14 @@ describe('api library', () => {
         json: async () => ({ url, init }),
       } as any
     })
-    // Provide local apiKey for header
-    ;(global as any).localStorage = {
-      getItem: (k: string) => (k === 'apiKey' ? 'test-key' : null),
+    // Provide local apiKey for header via real jsdom localStorage
+    try {
+      window.localStorage.setItem('apiKey', 'test-key')
+    } catch {
+      // Fallback mock if jsdom localStorage is unavailable
+      ;(global as any).localStorage = {
+        getItem: (k: string) => (k === 'apiKey' ? 'test-key' : null),
+      }
     }
   })
 

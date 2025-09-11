@@ -1,28 +1,48 @@
 const API_BASE = '';
 
-const getApiKey = () => {
+// Return the API key if present; do not fall back to a dummy value.
+const getApiKey = (): string | null => {
   if (typeof window !== 'undefined') {
-    return localStorage.getItem('apiKey') || 'test-key';
+    return localStorage.getItem('apiKey');
   }
-  return process.env.NEXT_PUBLIC_API_KEY ?? 'test-key';
+  return process.env.NEXT_PUBLIC_API_KEY ?? null;
+};
+
+const getAuthHeaders = (): Record<string, string> => {
+  const key = getApiKey();
+  return key ? { 'X-API-Key': key } : {};
 };
 
 async function apiGet<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: { 'X-API-Key': getApiKey() },
+    headers: { ...getAuthHeaders() },
     cache: 'no-store',
   });
-  if (!res.ok) throw new Error(`GET ${path} failed`);
+  if (!res.ok) {
+    let detail = '';
+    try {
+      const data = await res.json();
+      if (data && typeof data.detail === 'string') detail = `: ${data.detail}`;
+    } catch {}
+    throw new Error(`GET ${path} failed (${res.status})${detail}`);
+  }
   return res.json();
 }
 
 async function apiPost<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-API-Key': getApiKey() },
+    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`POST ${path} failed`);
+  if (!res.ok) {
+    let detail = '';
+    try {
+      const data = await res.json();
+      if (data && typeof data.detail === 'string') detail = `: ${data.detail}`;
+    } catch {}
+    throw new Error(`POST ${path} failed (${res.status})${detail}`);
+  }
   return res.json();
 }
 
@@ -81,9 +101,16 @@ export function placeOrder(body: PlaceOrderRequest) {
 async function apiDelete<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'DELETE',
-    headers: { 'X-API-Key': getApiKey() },
+    headers: { ...getAuthHeaders() },
   });
-  if (!res.ok) throw new Error(`DELETE ${path} failed`);
+  if (!res.ok) {
+    let detail = ''
+    try {
+      const data = await res.json()
+      if (data && typeof data.detail === 'string') detail = `: ${data.detail}`
+    } catch {}
+    throw new Error(`DELETE ${path} failed (${res.status})${detail}`)
+  }
   return res.json();
 }
 
@@ -177,7 +204,7 @@ export async function adminDeleteSymbol(symbol: string) {
   const url = `${API_BASE}/api/v1/admin/symbols/${encodeURIComponent(symbol)}`
   const res = await fetch(url, {
     method: 'DELETE',
-    headers: { 'X-API-Key': getApiKey() },
+    headers: { ...getAuthHeaders() },
   });
   if (!res.ok) {
     let detail = ''
