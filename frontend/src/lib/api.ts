@@ -174,11 +174,19 @@ export function adminSettleSymbol(symbol: string, price: number) {
 
 // Admin: Symbols (delete)
 export async function adminDeleteSymbol(symbol: string) {
-  const res = await fetch(`${API_BASE}/api/v1/admin/symbols/${encodeURIComponent(symbol)}`, {
+  const url = `${API_BASE}/api/v1/admin/symbols/${encodeURIComponent(symbol)}`
+  const res = await fetch(url, {
     method: 'DELETE',
     headers: { 'X-API-Key': getApiKey() },
   });
-  if (!res.ok) throw new Error('DELETE /admin/symbols failed');
+  if (!res.ok) {
+    let detail = ''
+    try {
+      const data = await res.json()
+      if (data && typeof data.detail === 'string') detail = `: ${data.detail}`
+    } catch {}
+    throw new Error(`DELETE /admin/symbols failed (${res.status})${detail}`)
+  }
   return res.json();
 }
 // Admin: list symbols with status

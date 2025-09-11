@@ -177,44 +177,92 @@ function SymbolsPanel() {
   const [form, setForm] = useState({ symbol: '', name: '', symbol_type: 'equity', tick_size: 0.01, lot_size: 1 });
   const [settlePrice, setSettlePrice] = useState<number>(0);
   const [selectedSymbol, setSelectedSymbol] = useState<string>('');
+  const [error, setError] = useState<string | null>(null);
 
   const load = async () => {
     // Prefer admin list for status, fallback to public list
     try {
       const rows = await adminListSymbols();
       setSymbols(rows);
-    } catch {
+      setError(null);
+    } catch (e: any) {
       const s = await fetchSymbols();
       setSymbols(s.symbols);
+      setError('Limited view: not authorized for admin symbol status');
     }
   };
   useEffect(() => { load(); }, []);
 
   const create = async () => {
-    await adminCreateSymbol(form);
-    setForm({ symbol: '', name: '', symbol_type: 'equity', tick_size: 0.01, lot_size: 1 });
-    await load();
+    try {
+      setError(null);
+      await adminCreateSymbol(form);
+      setForm({ symbol: '', name: '', symbol_type: 'equity', tick_size: 0.01, lot_size: 1 });
+      await load();
+    } catch (e: any) {
+      setError(e?.message || 'Failed to create symbol');
+    }
   };
   const remove = async (symbol: string) => {
-    await adminDeleteSymbol(symbol);
-    await load();
+    try {
+      setError(null);
+      if (typeof window !== 'undefined') {
+        try {
+          // Only prompt if confirm is available; jsdom may not implement it
+          const isJsdom = typeof navigator !== 'undefined' && /jsdom/i.test(navigator.userAgent || '')
+          if (typeof window.confirm === 'function' && !isJsdom) {
+            const ok = window.confirm(`Delete symbol ${symbol}? This cannot be undone.`);
+            if (!ok) return;
+          }
+        } catch {
+          // Ignore confirm errors in non-browser environments
+        }
+      }
+      await adminDeleteSymbol(symbol);
+      await load();
+    } catch (e: any) {
+      setError(e?.message || 'Failed to delete symbol');
+    }
   };
 
   const pause = async (symbol?: string) => {
-    await adminPauseSymbols(symbol);
+    try {
+      setError(null);
+      await adminPauseSymbols(symbol);
+      await load();
+    } catch (e: any) {
+      setError(e?.message || 'Failed to pause');
+    }
   };
   const start = async (symbol?: string) => {
-    await adminStartSymbols(symbol);
+    try {
+      setError(null);
+      await adminStartSymbols(symbol);
+      await load();
+    } catch (e: any) {
+      setError(e?.message || 'Failed to start');
+    }
   };
   const settle = async () => {
     if (!selectedSymbol || !settlePrice) return;
-    await adminSettleSymbol(selectedSymbol, settlePrice);
-    setSettlePrice(0);
+    try {
+      setError(null);
+      await adminSettleSymbol(selectedSymbol, settlePrice);
+      setSettlePrice(0);
+      await load();
+    } catch (e: any) {
+      setError(e?.message || 'Failed to settle');
+    }
   };
 
   return (
     <div>
       <SectionHeader title="Symbols" subtitle="Create and delete tradable symbols" />
+      {error && (
+        <div className="mb-3 rounded border border-red-500/40 bg-red-900/30 text-red-300 px-3 py-2 font-mono text-sm">
+          {error}
+        </div>
+      )}
       <div className="flex items-center gap-2 mb-4">
         <button onClick={() => pause(undefined)} className="px-3 py-1.5 bg-red-900/50 border border-red-500/40 text-red-300 rounded font-mono">Pause All</button>
         <button onClick={() => start(undefined)} className="px-3 py-1.5 bg-emerald-900/50 border border-emerald-500/40 text-emerald-300 rounded font-mono">Start All</button>

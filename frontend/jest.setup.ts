@@ -37,3 +37,14 @@ class MockWebSocket {
 // @ts-ignore
 global.WebSocket = MockWebSocket as any
 
+// jsdom doesn't implement confirm; default to 'true' in tests
+// @ts-ignore
+try {
+  // Ensure both global and window confirm are defined to true
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const g: any = global
+  if (typeof g.confirm !== 'function') g.confirm = () => true
+  if (typeof g.window !== 'undefined' && typeof g.window.confirm !== 'function') {
+    g.window.confirm = () => true
+  }
+} catch {}
