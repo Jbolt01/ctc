@@ -8,15 +8,15 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
+from src.db.models import APIKey
+from src.db.session import get_db_session
+
 
 def _headers(api_key: str) -> dict[str, str]:
     return {"X-API-Key": api_key}
 
 
 async def _promote_to_admin_from_api_key_value(api_key_value: str) -> None:
-    from src.db.session import get_db_session
-    from src.db.models import APIKey
-
     key_hash = hashlib.sha256(api_key_value.encode()).hexdigest()
     async for session in get_db_session():
         row = await session.scalar(select(APIKey).where(APIKey.key_hash == key_hash))
@@ -102,7 +102,7 @@ def test_admin_limits_and_hours_crud(test_app: TestClient, admin_key: str) -> No
     gl = test_app.get("/api/v1/admin/limits", headers=_headers(admin_key))
     assert gl.status_code == 200
     limits = gl.json()
-    assert any(l["symbol"] == "AAPL" and l["max_order_size"] == 250 for l in limits)
+    assert any(row["symbol"] == "AAPL" and row["max_order_size"] == 250 for row in limits)
 
     # Hours
     rh = test_app.post(
@@ -172,4 +172,3 @@ def test_admin_teams_competitions_users_marketdata(test_app: TestClient, admin_k
         json={"symbol": "AAPL", "close": 123.45},
     )
     assert md.status_code == 200 and md.json()["status"] == "ok"
-

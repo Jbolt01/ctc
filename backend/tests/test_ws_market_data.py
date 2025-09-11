@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from fastapi.testclient import TestClient
@@ -15,7 +14,9 @@ def place(client: TestClient, key: str, **kwargs: Any) -> None:
     assert r.status_code == 200
 
 
-def test_websocket_subscription_and_initial_payload(test_app: TestClient, api_keys: tuple[str, str]) -> None:
+def test_websocket_subscription_and_initial_payload(
+    test_app: TestClient, api_keys: tuple[str, str]
+) -> None:
     key_a, key_b = api_keys
 
     # Create a simple book and trade so WS can stream initial data
@@ -51,4 +52,3 @@ def test_websocket_subscription_and_initial_payload(test_app: TestClient, api_ke
 
         assert got_ack, "Did not receive subscription_ack"
         assert got_ob, "Did not receive initial orderbook"
-

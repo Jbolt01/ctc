@@ -1,9 +1,5 @@
 from __future__ import annotations
 
-import hashlib
-import json
-from datetime import datetime, timedelta
-
 from fastapi.testclient import TestClient
 
 
@@ -11,7 +7,9 @@ def _headers(api_key: str) -> dict[str, str]:
     return {"X-API-Key": api_key}
 
 
-def test_symbols_and_orderbook_empty_then_depth(test_app: TestClient, api_keys: tuple[str, str]) -> None:
+def test_symbols_and_orderbook_empty_then_depth(
+    test_app: TestClient, api_keys: tuple[str, str]
+) -> None:
     key_a, _ = api_keys
     # Symbols should include seeded ones
     r = test_app.get("/api/v1/symbols", headers=_headers(key_a))
@@ -28,21 +26,35 @@ def test_symbols_and_orderbook_empty_then_depth(test_app: TestClient, api_keys: 
     assert isinstance(data["bids"], list) and isinstance(data["asks"], list)
 
 
-def test_orders_open_filter_and_market_trades(test_app: TestClient, api_keys: tuple[str, str]) -> None:
+def test_orders_open_filter_and_market_trades(
+    test_app: TestClient, api_keys: tuple[str, str]
+) -> None:
     key_a, key_b = api_keys
     # Seed opposite orders to create a trade
     # B places bid
     rb = test_app.post(
         "/api/v1/orders",
         headers=_headers(key_b),
-        json={"symbol": "AAPL", "side": "buy", "order_type": "limit", "quantity": 10, "price": 100.0},
+        json={
+            "symbol": "AAPL",
+            "side": "buy",
+            "order_type": "limit",
+            "quantity": 10,
+            "price": 100.0,
+        },
     )
     assert rb.status_code == 200
     # A sells into it
     ra = test_app.post(
         "/api/v1/orders",
         headers=_headers(key_a),
-        json={"symbol": "AAPL", "side": "sell", "order_type": "limit", "quantity": 10, "price": 100.0},
+        json={
+            "symbol": "AAPL",
+            "side": "sell",
+            "order_type": "limit",
+            "quantity": 10,
+            "price": 100.0,
+        },
     )
     assert ra.status_code == 200
 
@@ -76,4 +88,3 @@ def test_auth_create_team_via_api_key(test_app: TestClient) -> None:
     assert r.status_code == 200
     data = r.json()
     assert data["id"] and data["role"] == "admin" and data["name"] == "My Team"
-
