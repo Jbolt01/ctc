@@ -86,6 +86,39 @@ def test_admin_symbols_crud_and_controls(test_app: TestClient, admin_key: str) -
     assert r6.status_code == 200 and r6.json()["status"] == "deleted"
 
 
+def test_admin_delete_symbol_conflict_with_orders(test_app: TestClient, admin_key: str) -> None:
+    # Create a new symbol and place an order referencing it, then attempt deletion
+    create = test_app.post(
+        "/api/v1/admin/symbols",
+        headers=_headers(admin_key),
+        json={
+            "symbol": "STP2",
+            "name": "Stub",
+            "symbol_type": "equity",
+            "tick_size": 0.01,
+            "lot_size": 1,
+        },
+    )
+    assert create.status_code == 200
+
+    # Place an order so FK exists
+    order = test_app.post(
+        "/api/v1/orders",
+        headers=_headers(admin_key),
+        json={"symbol": "STP2", "side": "buy", "order_type": "limit", "quantity": 1, "price": 10.0},
+    )
+    assert order.status_code == 200
+
+    # Deletion should fail with 409 and a helpful detail
+    delete = test_app.delete("/api/v1/admin/symbols/STP2", headers=_headers(admin_key))
+    assert delete.status_code == 409
+    assert "Symbol in use" in delete.json().get("detail", "")
+
+    # Verify symbol still present
+    ls = test_app.get("/api/v1/admin/symbols", headers=_headers(admin_key))
+    assert any(row["symbol"] == "STP2" for row in ls.json())
+
+
 def test_admin_limits_and_hours_crud(test_app: TestClient, admin_key: str) -> None:
     # Ensure a symbol exists (AAPL seeded)
     rl = test_app.post(

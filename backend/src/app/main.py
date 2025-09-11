@@ -9,7 +9,7 @@ import anyio._backends._asyncio  # noqa: F401
 from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.routing import APIRouter
 from pydantic import BaseModel, Field
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.config import settings
@@ -790,6 +790,59 @@ async def delete_symbol(symbol: str, session: DbSession) -> dict[str, str]:
     row = await session.scalar(select(SymbolModel).where(SymbolModel.symbol == symbol))
     if not row:
         raise HTTPException(status_code=404, detail="Not found")
+
+    # Check for dependent rows to avoid FK violations
+    sym_id = row.id
+    orders_cnt = await session.scalar(
+        select(func.count()).select_from(OrderModel).where(OrderModel.symbol_id == sym_id)
+    )
+    trades_cnt = await session.scalar(
+        select(func.count()).select_from(TradeModel).where(TradeModel.symbol_id == sym_id)
+    )
+    positions_cnt = await session.scalar(
+        select(func.count()).select_from(PositionModel).where(PositionModel.symbol_id == sym_id)
+    )
+    md_cnt = await session.scalar(
+        select(func.count()).select_from(MarketDataModel).where(MarketDataModel.symbol_id == sym_id)
+    )
+    from src.db.models import TradingHours as TradingHoursModel  # local import to avoid cycles
+    hours_cnt = await session.scalar(
+        select(func.count())
+        .select_from(TradingHoursModel)
+        .where(TradingHoursModel.symbol_id == sym_id)
+    )
+    from src.db.models import PositionLimit as PositionLimitModel  # local import to avoid cycles
+    limits_cnt = await session.scalar(
+        select(func.count())
+        .select_from(PositionLimitModel)
+        .where(PositionLimitModel.symbol_id == sym_id)
+    )
+    # Any symbols referencing this as underlying
+    derivatives_cnt = await session.scalar(
+        select(func.count()).select_from(SymbolModel).where(SymbolModel.underlying_id == sym_id)
+    )
+
+    total_refs = sum(
+        int(x or 0)
+        for x in (
+            orders_cnt,
+            trades_cnt,
+            positions_cnt,
+            md_cnt,
+            hours_cnt,
+            limits_cnt,
+            derivatives_cnt,
+        )
+    )
+    if total_refs > 0:
+        detail = (
+            f"Symbol in use (orders={int(orders_cnt or 0)}, trades={int(trades_cnt or 0)}, "
+            f"positions={int(positions_cnt or 0)}, market_data={int(md_cnt or 0)}, "
+            f"hours={int(hours_cnt or 0)}, limits={int(limits_cnt or 0)}, "
+            f"derivatives={int(derivatives_cnt or 0)})"
+        )
+        raise HTTPException(status_code=409, detail=detail)
+
     await session.delete(row)
     await session.commit()
     return {"status": "deleted"}
