@@ -2,6 +2,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
+import { teamGet, teamRotateCode } from '../lib/api';
 import clsx from 'clsx';
 // Lazy-load admin API to probe admin status when mounted
 // Avoid import cycles at module init
@@ -28,6 +29,8 @@ export default function NavBar() {
   const [teams, setTeams] = useState<Team[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [joinCode, setJoinCode] = useState<string | null>(null);
+  const [isOwner, setIsOwner] = useState(false);
 
   useEffect(() => {
     const userData = localStorage.getItem('user');
@@ -60,6 +63,33 @@ export default function NavBar() {
     };
   }, []);
 
+  const loadTeamSettings = async () => {
+    try {
+      const apiKey = localStorage.getItem('apiKey');
+      if (!apiKey) return;
+      const t = await teamGet();
+      setJoinCode((t as any).join_code || null);
+      setIsOwner((t as any).role === 'admin');
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleToggleDropdown = async () => {
+    const newVal = !showDropdown;
+    setShowDropdown(newVal);
+    if (newVal) await loadTeamSettings();
+  };
+
+  const handleRotateJoinCode = async () => {
+    try {
+      const res = await teamRotateCode();
+      setJoinCode((res as any).join_code || null);
+    } catch {
+      // ignore
+    }
+  };
+
   const handleLogout = () => {
     localStorage.removeItem('user');
     localStorage.removeItem('teams');
@@ -89,6 +119,20 @@ export default function NavBar() {
             >
               Equities
             </Link>
+            {user && (
+              <Link
+                href="/team"
+                className={clsx(
+                  'rounded-lg px-4 py-2 font-mono font-medium transition-all duration-200 hover:bg-gray-800/60 hover:text-cyan-400 border border-transparent hover:border-gray-700/50',
+                  pathname === '/team'
+                    ? 'bg-cyan-900/30 text-cyan-400 border-cyan-500/50 shadow-lg shadow-cyan-500/10'
+                    : 'text-gray-300 hover:shadow-lg hover:shadow-gray-800/20'
+                )}
+                title="Team Settings"
+              >
+                Team
+              </Link>
+            )}
             {isAdmin && (
               <Link
                 href="/admin"
@@ -108,7 +152,7 @@ export default function NavBar() {
           {user ? (
             <div className="relative">
               <button
-                onClick={() => setShowDropdown(!showDropdown)}
+                onClick={handleToggleDropdown}
                 className="flex items-center space-x-2 bg-gray-800/60 hover:bg-gray-700/60 text-white px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 border border-gray-700/50"
               >
                 <span>{user.name}</span>
@@ -132,6 +176,14 @@ export default function NavBar() {
                           {team.name} <span className="text-cyan-400">({team.role})</span>
                         </div>
                       ))}
+                      {joinCode && (
+                        <div className="mt-2 text-xs text-gray-400">
+                          Join code: <span className="text-cyan-300 font-mono">{joinCode}</span>
+                          {isOwner && (
+                            <button onClick={handleRotateJoinCode} className="ml-2 inline-flex items-center px-2 py-0.5 border border-gray-700 rounded text-gray-300 hover:bg-gray-700/60 font-mono text-[11px]" title="Regenerate join code">Regenerate</button>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
                   

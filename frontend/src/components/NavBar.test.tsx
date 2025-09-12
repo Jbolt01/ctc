@@ -1,10 +1,19 @@
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import NavBar from './NavBar'
 
 jest.mock('next/navigation', () => ({
   usePathname: () => '/trading/equities',
   useRouter: () => ({ push: jest.fn() }),
 }))
+
+// Mock API used via dynamic import in NavBar
+jest.mock('../lib/api', () => ({
+  adminListUsers: jest.fn().mockRejectedValue(new Error('not admin in tests')),
+  teamGet: jest.fn().mockResolvedValue({ id: 't1', name: 'Team A', join_code: 'ABCDEFGH', role: 'admin', members: [] }),
+  teamRotateCode: jest.fn().mockResolvedValue({ join_code: 'ZZZZZZZZ' }),
+}))
+
+import * as api from '../lib/api'
 
 describe('NavBar', () => {
   beforeEach(() => {
@@ -19,12 +28,14 @@ describe('NavBar', () => {
     const teams = [{ id: 't1', name: 'Team A', role: 'admin' }]
     localStorage.setItem('user', JSON.stringify(user))
     localStorage.setItem('teams', JSON.stringify(teams))
+    localStorage.setItem('apiKey', 'k')
   })
 
   it('renders brand and links', () => {
     render(<NavBar />)
     expect(screen.getByText('CTC TRADING')).toBeInTheDocument()
     expect(screen.getByText('Equities')).toBeInTheDocument()
+    expect(screen.getByText('Team')).toBeInTheDocument()
   })
 
   it('allows sign out and navigates to login', () => {
@@ -37,5 +48,13 @@ describe('NavBar', () => {
     expect(localStorage.getItem('user')).toBeNull()
     expect(localStorage.getItem('teams')).toBeNull()
   })
-})
 
+  it('shows join code and can regenerate for owner', async () => {
+    render(<NavBar />)
+    fireEvent.click(screen.getByText('Alice'))
+    await screen.findByText(/Join code:/)
+    expect(screen.getByText('ABCDEFGH')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Regenerate/ }))
+    await waitFor(() => expect((api.teamRotateCode as jest.Mock)).toHaveBeenCalled())
+  })
+})
