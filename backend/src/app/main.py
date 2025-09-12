@@ -316,6 +316,21 @@ class JoinTeamRequest(BaseModel):
     role: str = "member"
 
 
+class TeamMemberOut(BaseModel):
+    id: str
+    email: str
+    name: str
+    role: str
+
+
+class TeamSettingsOut(BaseModel):
+    id: str
+    name: str
+    join_code: str
+    role: str
+    members: list[TeamMemberOut]
+
+
 # Authentication Endpoints
 def _generate_join_code() -> str:
     # Short, shareable, uppercased code
@@ -414,6 +429,7 @@ async def register(request: LoginRequest, session: DbSession) -> LoginResponse:
     api_key = APIKeyModel(
         key_hash=api_key_hash,
         team_id=team.id,
+        user_id=user.id,
         name=f"{name}'s API Key",
         is_admin=(email.lower() in settings.admin_emails) if email else False,
     )
@@ -496,6 +512,7 @@ async def login(request: LoginRequest, session: DbSession) -> LoginResponse:
     new_key = APIKeyModel(
         key_hash=api_key_hash,
         team_id=team_id,
+        user_id=user.id,
         name=f"Login key for {user.email}",
         is_admin=is_admin,
     )
@@ -539,15 +556,12 @@ async def create_team(
     session: DbSession
 ) -> TeamResponse:
     """Create a new team"""
-    # Get user from API key
-    user_query = (
+    # Get user from API key (requires user_id on APIKey)
+    user = await session.scalar(
         select(UserModel)
-        .join(TeamMemberModel, UserModel.id == TeamMemberModel.user_id)
-        .join(APIKeyModel, TeamMemberModel.team_id == APIKeyModel.team_id)
+        .join(APIKeyModel, APIKeyModel.user_id == UserModel.id)
         .where(APIKeyModel.key_hash == api_key["key_hash"])
     )
-
-    user = await session.scalar(user_query)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
@@ -762,6 +776,146 @@ class SymbolsResponse(BaseModel):
 async def get_symbols(api_key: RequireAPIKey, session: DbSession) -> SymbolsResponse:
     rows = (await session.execute(select(SymbolModel.symbol, SymbolModel.name))).all()
     return SymbolsResponse(symbols=[SymbolInfo(symbol=s, name=n) for s, n in rows])
+
+
+# Team settings endpoints
+@api_router.get("/teams/me", response_model=TeamSettingsOut)
+async def get_team_settings(api_key: RequireAPIKey, session: DbSession) -> TeamSettingsOut:
+    team = await _get_team_by_id(session, api_key["team_id"])
+    # Determine calling user via API key
+    user = await session.scalar(
+        select(UserModel)
+        .join(APIKeyModel, APIKeyModel.user_id == UserModel.id)
+        .where(APIKeyModel.key_hash == api_key["key_hash"])
+    )
+    # Membership role
+    role = "member"
+    if user:
+        tm = await session.scalar(
+            select(TeamMemberModel)
+            .where(TeamMemberModel.team_id == team.id, TeamMemberModel.user_id == user.id)
+        )
+        if tm:
+            role = tm.role
+    # Members list
+    member_rows = (
+        await session.execute(
+            select(UserModel.id, UserModel.email, UserModel.name, TeamMemberModel.role)
+            .join(TeamMemberModel, TeamMemberModel.user_id == UserModel.id)
+            .where(TeamMemberModel.team_id == team.id)
+        )
+    ).all()
+    members = [
+        TeamMemberOut(id=str(r.id), email=r.email, name=r.name, role=r.role) for r in member_rows
+    ]
+    return TeamSettingsOut(
+        id=str(team.id),
+        name=team.name,
+        join_code=team.join_code,
+        role=role,
+        members=members,
+    )
+
+
+class TeamNameIn(BaseModel):
+    name: str
+
+
+def _is_owner(role: str) -> bool:
+    return role == "admin"
+
+
+@api_router.post("/teams/me/name")
+async def update_team_name(
+    payload: TeamNameIn, api_key: RequireAPIKey, session: DbSession
+) -> dict[str, str]:
+    team = await _get_team_by_id(session, api_key["team_id"])
+    # Identify user and role
+    user = await session.scalar(
+        select(UserModel)
+        .join(APIKeyModel, APIKeyModel.user_id == UserModel.id)
+        .where(APIKeyModel.key_hash == api_key["key_hash"])
+    )
+    if not user:
+        raise HTTPException(status_code=403, detail="User not found for API key")
+    tm = await session.scalar(
+        select(TeamMemberModel).where(
+            TeamMemberModel.team_id == team.id, TeamMemberModel.user_id == user.id
+        )
+    )
+    if not tm or not _is_owner(tm.role):
+        raise HTTPException(status_code=403, detail="Only team owner can update name")
+    unique = await _ensure_unique_team_name(session, payload.name)
+    team.name = unique
+    session.add(team)
+    await session.commit()
+    return {"status": "ok"}
+
+
+@api_router.post("/teams/me/rotate-code")
+async def rotate_join_code(api_key: RequireAPIKey, session: DbSession) -> dict[str, str]:
+    team = await _get_team_by_id(session, api_key["team_id"])
+    user = await session.scalar(
+        select(UserModel)
+        .join(APIKeyModel, APIKeyModel.user_id == UserModel.id)
+        .where(APIKeyModel.key_hash == api_key["key_hash"])
+    )
+    if not user:
+        raise HTTPException(status_code=403, detail="User not found for API key")
+    tm = await session.scalar(
+        select(TeamMemberModel).where(
+            TeamMemberModel.team_id == team.id, TeamMemberModel.user_id == user.id
+        )
+    )
+    if not tm or not _is_owner(tm.role):
+        raise HTTPException(status_code=403, detail="Only team owner can rotate code")
+    team.join_code = secrets.token_urlsafe(6).replace("-", "").replace("_", "").upper()[:8]
+    session.add(team)
+    await session.commit()
+    return {"join_code": team.join_code}
+
+
+@api_router.delete("/teams/me/members/{user_id}")
+async def remove_member(user_id: str, api_key: RequireAPIKey, session: DbSession) -> dict[str, str]:
+    team = await _get_team_by_id(session, api_key["team_id"])
+    # Acting user
+    actor = await session.scalar(
+        select(UserModel)
+        .join(APIKeyModel, APIKeyModel.user_id == UserModel.id)
+        .where(APIKeyModel.key_hash == api_key["key_hash"])
+    )
+    if not actor:
+        raise HTTPException(status_code=403, detail="User not found for API key")
+    actor_tm = await session.scalar(
+        select(TeamMemberModel).where(
+            TeamMemberModel.team_id == team.id, TeamMemberModel.user_id == actor.id
+        )
+    )
+    if not actor_tm or not _is_owner(actor_tm.role):
+        raise HTTPException(status_code=403, detail="Only team owner can remove members")
+    # Prevent removing self if only owner
+    target_id: _Any
+    try:
+        target_id = _uuid.UUID(user_id)
+    except Exception:
+        target_id = user_id
+    if target_id == actor.id:
+        raise HTTPException(status_code=400, detail="Owner cannot remove self")
+    # Remove membership
+    row = await session.scalar(
+        select(TeamMemberModel).where(
+            TeamMemberModel.team_id == team.id, TeamMemberModel.user_id == target_id
+        )
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Member not found")
+    await session.execute(
+        delete(TeamMemberModel).where(
+            TeamMemberModel.team_id == team.id, TeamMemberModel.user_id == target_id
+        )
+    )
+    await session.commit()
+    return {"status": "removed"}
 
 
 class OrderBookLevel(BaseModel):

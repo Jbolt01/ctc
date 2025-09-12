@@ -235,3 +235,26 @@ export function adminResetExchange() {
 export function adminResetUsers() {
   return apiPost(`/api/v1/admin/reset-users`, {});
 }
+
+// Team settings (member-visible; owner-modifiable)
+export type TeamMember = { id: string; email: string; name: string; role: string };
+export type TeamSettings = { id: string; name: string; join_code: string; role: string; members: TeamMember[] };
+export function teamGet() {
+  return apiGet<TeamSettings>(`/api/v1/teams/me`);
+}
+export function teamUpdateName(name: string) {
+  return apiPost(`/api/v1/teams/me/name`, { name });
+}
+export function teamRotateCode() {
+  return apiPost(`/api/v1/teams/me/rotate-code`, {});
+}
+export async function teamRemoveMember(userId: string) {
+  const url = `${API_BASE}/api/v1/teams/me/members/${encodeURIComponent(userId)}`
+  const res = await fetch(url, { method: 'DELETE', headers: { ...getAuthHeaders() } })
+  if (!res.ok) {
+    let detail = ''
+    try { const data = await res.json(); if (data && typeof data.detail === 'string') detail = `: ${data.detail}` } catch {}
+    throw new Error(`DELETE /teams/me/members failed (${res.status})${detail}`)
+  }
+  return res.json()
+}
