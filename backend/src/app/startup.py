@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import secrets
 from datetime import datetime
 
 from fastapi import FastAPI
@@ -41,7 +42,11 @@ async def _ensure_team(session: AsyncSession, name: str) -> Team:
     row = await session.scalar(select(Team).where(Team.name == name))
     if row:
         return row
-    team = Team(name=name)
+    # Generate a simple uppercase join code for seeding
+    def _gen_code() -> str:
+        return secrets.token_urlsafe(6).replace("-", "").replace("_", "").upper()[:8]
+
+    team = Team(name=name, join_code=_gen_code())
     session.add(team)
     await session.commit()
     await session.refresh(team)
