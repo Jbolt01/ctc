@@ -11,7 +11,7 @@ A professional trading platform with real-time market data, team-based trading, 
 - 🔌 **WebSocket Integration** - Real-time market data updates
 - 🐳 **Production Ready** - Docker-based deployment with CI/CD
 
-## Local Development (Docker)
+## Local Development (with Docker)
 
 These steps spin up Postgres, Redis, Backend (FastAPI), Frontend (Next.js), and nginx (TLS proxy) in one command.
 
@@ -96,7 +96,7 @@ Now visit:
 - Admin 403 → ensure your email is in `ADMIN_EMAILS` and restart backend, then re‑register.
 - HTTPS issues → regenerate self‑signed certs in `./certs`.
 
-## Local Development (without Docker)
+## Local Development (without Docker) [Note: *Deprecated*, not guaranteed to work]
 
 Backend:
 1. `cd backend`
