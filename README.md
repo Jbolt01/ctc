@@ -120,3 +120,12 @@ cp env.prod.example .env.prod
 # Edit .env.prod with your settings
 ./deploy.sh
 ```
+
+## Domain Change Process
+1. Setup DNS for new domain
+2. Update GitHub secrets
+   * `DEPLOY_DOMAIN`: new domain (e.g., your-new-domain.com)
+   * `DEPLOY_HOST`: server's IP address
+   * `NEXT_PUBLIC_API_URL`: https://your-new-domain.com/api
+   * `NEXT_PUBLIC_WS_URL`: wss://your-new-domain.com/ws
+   * `LETSENCRYPT_EMAIL`: email for SSL certificate notifications
