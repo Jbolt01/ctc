@@ -226,6 +226,7 @@ jobs:
           echo "🔐 Ensuring TLS certificates..."
           CERT_CRT="\$APP_DIR/certs/server.crt"
           CERT_KEY="\$APP_DIR/certs/server.key"
+          rm -f "$CERT_CRT" "$CERT_KEY"
           if [ ! -s "\$CERT_CRT" ] || [ ! -s "\$CERT_KEY" ]; then
             if [ -n "\$DEPLOY_DOMAIN" ] && [ -n "\$LETSENCRYPT_EMAIL" ]; then
               echo "➡️  Attempting Let's Encrypt issuance for \$DEPLOY_DOMAIN via dockerized certbot (standalone)"
