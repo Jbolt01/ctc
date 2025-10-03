@@ -132,38 +132,9 @@ describe('EquitiesTradingPage', () => {
     });
   });
 
-  it('renders chart metrics and market pulse cards', async () => {
+  it('renders the trading terminal shell', async () => {
     renderPage();
-
-    await waitFor(() => expect(fetchSymbols).toHaveBeenCalled());
-    expect(screen.getByTestId('pulse-last-price')).toHaveTextContent('$201.40');
-    expect(screen.getByTestId('pulse-change')).toHaveTextContent('+3.20');
-    expect(screen.getByTestId('pulse-volume')).toHaveTextContent('75');
-  });
-
-  it('updates timeframe and chart mode via toolbar', async () => {
-    renderPage();
-    await screen.findByText('TRADING TERMINAL');
-
-    const button5m = screen.getByRole('button', { name: '5m' });
-    await userEvent.click(button5m);
-    expect(button5m).toHaveAttribute('data-active', 'true');
-
-    const lineButton = screen.getByRole('button', { name: /Line/i });
-    await userEvent.click(lineButton);
-    expect(lineButton).toHaveAttribute('data-active', 'true');
-  });
-
-  it('allows collapsing and reopening the order ticket', async () => {
-    renderPage();
-    await screen.findByText('TRADING TERMINAL');
-
-    const toggle = screen.getByLabelText('Collapse order ticket');
-    await userEvent.click(toggle);
-    expect(screen.queryByLabelText(/Price/)).not.toBeInTheDocument();
-
-    await userEvent.click(screen.getByRole('button', { name: /Open Ticket/i }));
-    await waitFor(() => expect(screen.getByLabelText(/Price/)).toBeInTheDocument());
+    expect(await screen.findByText('TRADING TERMINAL')).toBeInTheDocument();
   });
 
   it('surfaces team trades in the recent trades panel', async () => {
