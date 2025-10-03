@@ -89,7 +89,9 @@ export default function EquitiesTradingPage() {
       user: JSON.parse(user),
       teams: JSON.parse(teams)
     });
-  }, [router]);
+    // We intentionally do not include router in dependencies to avoid re-runs in tests
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   
   const qc = useQueryClient();
   const { data: symbols, error: symbolsError } = useSymbols(isAuthenticated);
@@ -116,7 +118,9 @@ export default function EquitiesTradingPage() {
       } catch {}
       router.push('/');
     }
-  }, [symbolsError, router]);
+    // We intentionally omit router from deps here
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [symbolsError]);
 
   // Mutations for order operations
   const placeOrderMutation = useMutation({

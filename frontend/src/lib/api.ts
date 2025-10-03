@@ -258,3 +258,27 @@ export async function teamRemoveMember(userId: string) {
   }
   return res.json()
 }
+
+// Team API Keys
+export type TeamAPIKey = {
+  id: string;
+  name: string;
+  created_at: string;
+  last_used?: string | null;
+  is_active: boolean;
+};
+export type TeamAPIKeyCreateOut = {
+  id: string;
+  name: string;
+  created_at: string;
+  api_key: string; // returned only once
+};
+export function listTeamApiKeys() {
+  return apiGet<TeamAPIKey[]>(`/api/v1/teams/me/api-keys`);
+}
+export function createTeamApiKey(name: string) {
+  return apiPost<TeamAPIKeyCreateOut>(`/api/v1/teams/me/api-keys`, { name });
+}
+export function revokeTeamApiKey(id: string) {
+  return apiDelete<{ status: string; id: string }>(`/api/v1/teams/me/api-keys/${encodeURIComponent(id)}`);
+}

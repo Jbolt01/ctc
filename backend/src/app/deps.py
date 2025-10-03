@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import hashlib
+from datetime import datetime
 from typing import Annotated, TypedDict
 
 from fastapi import Depends, Header, HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.config import settings
@@ -35,13 +36,25 @@ async def require_api_key(
     # Production mode: validate against database
     key_hash = hashlib.sha256(x_api_key.encode()).hexdigest()
 
-    # Look up API key in database
+    # Look up API key in database and ensure active
     api_key_record = await session.scalar(
         select(APIKeyModel).where(APIKeyModel.key_hash == key_hash)
     )
 
-    if not api_key_record:
+    if not api_key_record or not api_key_record.is_active:
         raise HTTPException(status_code=401, detail="Invalid API key")
+
+    # Update last_used timestamp (best-effort)
+    try:
+        await session.execute(
+            update(APIKeyModel)
+            .where(APIKeyModel.id == api_key_record.id)
+            .values(last_used=datetime.utcnow())
+        )
+        await session.commit()
+    except Exception:
+        # Ignore telemetry errors
+        pass
 
     return APIKey(
         team_id=str(api_key_record.team_id),
