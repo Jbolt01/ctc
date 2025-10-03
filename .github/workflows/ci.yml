@@ -21,11 +21,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        python-version: ["3.12", "3.13"]
         task: [lint, typecheck, test]
-        python-version: ["3.12"]
-      include:
-        - task: test
-          python-version: "3.13"
+        exclude:
+          - python-version: "3.13"
+            task: lint
+          - python-version: "3.13"
+            task: typecheck
     defaults:
       run:
         working-directory: backend
