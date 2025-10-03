@@ -195,7 +195,6 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          build-args: ${{ env.BUILD_ARGS || '' }}
           cache-from: type=gha,scope=${{ matrix.cache_scope }}
           cache-to: type=gha,scope=${{ matrix.cache_scope }},mode=max
           build-args: ${{ matrix.requires_frontend_secrets == true && env.FRONTEND_BUILD_ARGS || '' }}
