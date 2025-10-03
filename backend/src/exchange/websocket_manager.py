@@ -1,15 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import UTC
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import WebSocket
-from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from src.db.models import Order as OrderModel
-from src.db.models import Symbol as SymbolModel
 
 
 class WebSocketManager:
@@ -18,14 +13,11 @@ class WebSocketManager:
         self.connections: dict[WebSocket, dict[str, Any]] = {}
 
     def connect(self, websocket: WebSocket) -> None:
-        """Register a new WebSocket connection"""
-        self.connections[websocket] = {
-            "symbols": [],
-            "channels": []
-        }
+        """Register a new WebSocket connection."""
+        self.connections[websocket] = {"symbols": [], "channels": []}
 
     def disconnect(self, websocket: WebSocket) -> None:
-        """Remove a WebSocket connection"""
+        """Remove a WebSocket connection."""
         if websocket in self.connections:
             del self.connections[websocket]
 
@@ -33,138 +25,101 @@ class WebSocketManager:
         self,
         websocket: WebSocket,
         symbols: Sequence[str],
-        channels: Sequence[str]
+        channels: Sequence[str],
     ) -> None:
-        """Subscribe a connection to specific symbols and channels"""
+        """Subscribe a connection to specific symbols and channels."""
         if websocket in self.connections:
             self.connections[websocket]["symbols"] = list(symbols)
             self.connections[websocket]["channels"] = list(channels)
 
     def unsubscribe(self, websocket: WebSocket) -> None:
-        """Unsubscribe a connection from all channels"""
+        """Unsubscribe a connection from all channels."""
         if websocket in self.connections:
             self.connections[websocket]["symbols"] = []
             self.connections[websocket]["channels"] = []
 
     async def send_to_connection(self, websocket: WebSocket, data: dict[str, Any]) -> bool:
-        """Send data to a specific connection"""
+        """Send data to a specific connection."""
         try:
             await websocket.send_json(data)
             return True
-        except Exception as e:
-            print(f"Failed to send to WebSocket connection: {e}")
-            # Only disconnect if it's a connection error, not other errors
-            if "connection" in str(e).lower() or "closed" in str(e).lower():
+        except Exception as exc:  # pragma: no cover - network errors
+            print(f"Failed to send to WebSocket connection: {exc}")
+            if "connection" in str(exc).lower() or "closed" in str(exc).lower():
                 self.disconnect(websocket)
             return False
 
     async def broadcast_to_symbol(self, symbol: str, channel: str, data: dict[str, Any]) -> None:
-        """Broadcast data to all connections subscribed to a symbol and channel"""
-        disconnected = []
+        """Broadcast data to all connections subscribed to a symbol and channel."""
+        disconnected: list[WebSocket] = []
 
         for websocket, subscription in self.connections.items():
             if symbol in subscription["symbols"] and channel in subscription["channels"]:
                 try:
                     await websocket.send_json(data)
                 except Exception:
-                    # Connection is closed, mark for removal
                     disconnected.append(websocket)
 
-        # Remove disconnected connections
         for websocket in disconnected:
             self.disconnect(websocket)
 
-    async def get_order_book(self, symbol: str, session: AsyncSession) -> dict[str, Any]:
-        """Get real order book from database"""
-        # Get symbol_id
-        symbol_result = await session.scalar(
-            select(SymbolModel.id).where(SymbolModel.symbol == symbol)
-        )
-        if not symbol_result:
-            return {"bids": [], "asks": []}
-
-        # Get open buy orders (bids) - highest price first
-        bids_query = select(
-                        OrderModel.price,
-            func.sum(OrderModel.quantity - OrderModel.filled_quantity).label("total_quantity")
-        )\
-            .where(
-                OrderModel.symbol_id == symbol_result,
-                OrderModel.side == "buy",
-                OrderModel.status.in_(["pending", "partial"]),
-                OrderModel.price.is_not(None)
-            )\
-            .group_by(OrderModel.price)\
-            .order_by(OrderModel.price.desc())\
-            .limit(10)
-
-        bids_result = await session.execute(bids_query)
-        bids = [{"price": float(row.price), "quantity": int(row.total_quantity)}
-                for row in bids_result.fetchall()]
-
-        # Get open sell orders (asks) - lowest price first
-        asks_query = select(
-                        OrderModel.price,
-            func.sum(OrderModel.quantity - OrderModel.filled_quantity).label("total_quantity")
-        )\
-            .where(
-                OrderModel.symbol_id == symbol_result,
-                OrderModel.side == "sell",
-                OrderModel.status.in_(["pending", "partial"]),
-                OrderModel.price.is_not(None)
-            )\
-            .group_by(OrderModel.price)\
-            .order_by(OrderModel.price.asc())\
-            .limit(10)
-
-        asks_result = await session.execute(asks_query)
-        asks = [{"price": float(row.price), "quantity": int(row.total_quantity)}
-                for row in asks_result.fetchall()]
-
-        return {"bids": bids, "asks": asks}
-
-    async def notify_order_book_update(self, symbol: str, session: AsyncSession) -> None:
-        """Notify all subscribers of order book changes"""
-        from datetime import datetime
-
-        order_book = await self.get_order_book(symbol, session)
+    async def notify_order_book_update(
+        self,
+        symbol: str,
+        bids: Sequence[tuple[float, int]],
+        asks: Sequence[tuple[float, int]],
+    ) -> None:
+        """Notify subscribers of an updated order book snapshot."""
         timestamp = datetime.now(tz=UTC).isoformat()
+        bids_payload = [
+            {"price": float(price), "quantity": int(quantity)}
+            for price, quantity in bids
+        ]
+        asks_payload = [
+            {"price": float(price), "quantity": int(quantity)}
+            for price, quantity in asks
+        ]
 
-        # Send order book update
-        await self.broadcast_to_symbol(symbol, "orderbook", {
-            "type": "orderbook",
-            "symbol": symbol,
-            "bids": order_book["bids"],
-            "asks": order_book["asks"],
-            "timestamp": timestamp,
-        })
-
-        # Send quote update (best bid/ask)
-        bid = order_book["bids"][0]["price"] if order_book["bids"] else None
-        ask = order_book["asks"][0]["price"] if order_book["asks"] else None
-        bid_size = order_book["bids"][0]["quantity"] if order_book["bids"] else 0
-        ask_size = order_book["asks"][0]["quantity"] if order_book["asks"] else 0
-
-        if bid is not None or ask is not None:
-            await self.broadcast_to_symbol(symbol, "quotes", {
-                "type": "quote",
+        await self.broadcast_to_symbol(
+            symbol,
+            "orderbook",
+            {
+                "type": "orderbook",
                 "symbol": symbol,
-                "bid": bid,
-                "ask": ask,
-                "bid_size": bid_size,
-                "ask_size": ask_size,
+                "bids": bids_payload,
+                "asks": asks_payload,
                 "timestamp": timestamp,
-            })
+            },
+        )
+
+        if bids_payload or asks_payload:
+            await self.broadcast_to_symbol(
+                symbol,
+                "quotes",
+                {
+                    "type": "quote",
+                    "symbol": symbol,
+                    "bid": bids_payload[0]["price"] if bids_payload else None,
+                    "ask": asks_payload[0]["price"] if asks_payload else None,
+                    "bid_size": bids_payload[0]["quantity"] if bids_payload else 0,
+                    "ask_size": asks_payload[0]["quantity"] if asks_payload else 0,
+                    "timestamp": timestamp,
+                },
+            )
 
     async def notify_trade(self, symbol: str, price: float, quantity: int, timestamp: str) -> None:
-        """Notify all subscribers of a new trade"""
-        await self.broadcast_to_symbol(symbol, "trades", {
-            "type": "trade",
-            "symbol": symbol,
-            "price": price,
-            "quantity": quantity,
-            "timestamp": timestamp,
-        })
+        """Notify all subscribers of a new trade."""
+        await self.broadcast_to_symbol(
+            symbol,
+            "trades",
+            {
+                "type": "trade",
+                "symbol": symbol,
+                "price": price,
+                "quantity": quantity,
+                "timestamp": timestamp,
+            },
+        )
 
 
 # Global WebSocket manager instance

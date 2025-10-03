@@ -88,3 +88,52 @@ def test_auth_create_team_via_api_key(test_app: TestClient) -> None:
     assert r.status_code == 200
     data = r.json()
     assert data["id"] and data["role"] == "admin" and data["name"] == "My Team"
+
+
+def test_place_order_does_not_reload_book(
+    test_app: TestClient,
+    api_keys: tuple[str, str],
+    monkeypatch,
+) -> None:
+    key_a, _ = api_keys
+
+    from src.app import main as app_mod
+
+    call_count = 0
+    original = app_mod._exchange.load_open_orders
+
+    async def _tracking_load(session, symbol_code=None, **kwargs):  # type: ignore[override]
+        nonlocal call_count
+        call_count += 1
+        await original(session, symbol_code=symbol_code, **kwargs)
+
+    monkeypatch.setattr(app_mod._exchange, "load_open_orders", _tracking_load)
+
+    response = test_app.post(
+        "/api/v1/orders",
+        headers=_headers(key_a),
+        json={
+            "symbol": "AAPL",
+            "side": "buy",
+            "order_type": "limit",
+            "quantity": 5,
+            "price": 120.0,
+        },
+    )
+    assert response.status_code == 200
+
+    # Second order placement should reuse cached book without triggering another load
+    response_two = test_app.post(
+        "/api/v1/orders",
+        headers=_headers(key_a),
+        json={
+            "symbol": "AAPL",
+            "side": "buy",
+            "order_type": "limit",
+            "quantity": 3,
+            "price": 119.5,
+        },
+    )
+    assert response_two.status_code == 200
+
+    assert call_count == 1

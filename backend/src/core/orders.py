@@ -43,7 +43,5 @@ class OrderService:
             updated_at=datetime.utcnow(),
         )
         self.session.add(db_order)
-        await self.session.commit()
-        await self.session.refresh(db_order)
+        await self.session.flush()
         return db_order
-
