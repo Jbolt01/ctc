@@ -13,13 +13,11 @@
   },
   "dependencies": {
     "@tanstack/react-query": "^5.51.23",
-    "chart.js": "^4.4.3",
-    "chartjs-adapter-date-fns": "^3.0.0",
     "clsx": "^2.1.1",
     "date-fns": "^2.30.0",
+    "lightweight-charts": "^5.0.9",
     "next": "14.2.5",
     "react": "18.3.1",
-    "react-chartjs-2": "^5.2.0",
     "react-dom": "18.3.1",
     "tailwind-merge": "^2.5.2"
   },
@@ -27,10 +25,10 @@
     "@testing-library/jest-dom": "^6.4.8",
     "@testing-library/react": "^16.0.0",
     "@testing-library/user-event": "^14.5.2",
+    "@types/jest": "^29.5.12",
     "@types/node": "20.12.12",
     "@types/react": "18.3.3",
     "@types/react-dom": "18.3.0",
-    "@types/jest": "^29.5.12",
     "autoprefixer": "^10.4.19",
     "eslint": "8.57.0",
     "eslint-config-next": "14.2.5",
@@ -39,8 +37,8 @@
     "msw": "^2.4.3",
     "postcss": "^8.4.38",
     "tailwindcss": "^3.4.10",
-    "whatwg-fetch": "^3.6.20",
-    "typescript": "5.4.5"
+    "typescript": "5.4.5",
+    "whatwg-fetch": "^3.6.20"
   },
   "packageManager": "pnpm@10.14.0+sha512.ad27a79641b49c3e481a16a805baa71817a04bbe06a38d17e60e2eaee83f6a146c6a688125f5792e48dd5ba30e7da52a5cda4c3992b9ccf333f9ce223af84748"
 }
