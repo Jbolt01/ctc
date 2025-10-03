@@ -1,20 +1,16 @@
 "use client";
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import NavBar from '../../../components/NavBar';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
-import { Line } from 'react-chartjs-2';
 import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  Tooltip,
-  Legend,
-  TimeScale,
-} from 'chart.js';
-import 'chartjs-adapter-date-fns';
+  ColorType,
+  CrosshairMode,
+  createChart,
+  type IChartApi,
+  type ISeriesApi,
+  type UTCTimestamp,
+} from 'lightweight-charts';
 import { 
   fetchSymbols, 
   fetchPositions, 
@@ -28,8 +24,6 @@ import {
   type OrderSummary
 } from '../../../lib/api';
 import { useMarketData } from '../../../hooks/useMarketData';
-
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, TimeScale);
 
 // Custom hooks
 function useSymbols(enabled = true) {
@@ -293,114 +287,156 @@ export default function EquitiesTradingPage() {
 
 // Price Chart Component
 function PriceChart({ trades, symbol }: { trades: TradeRecord[]; symbol: string }) {
-  const chartData = useMemo(() => {
-    if (!trades.length) return null;
-    
-    const sortedTrades = [...trades].sort((a, b) => 
-      new Date(a.executed_at).getTime() - new Date(b.executed_at).getTime()
-    );
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const seriesRef = useRef<ISeriesApi<'Area'> | null>(null);
 
-    return {
-      labels: sortedTrades.map(t => new Date(t.executed_at)),
-      datasets: [{
-        label: 'Trade Price',
-        data: sortedTrades.map(t => ({ x: new Date(t.executed_at), y: t.price })),
-        borderColor: '#06B6D4',
-        backgroundColor: 'rgba(6, 182, 212, 0.15)',
-        borderWidth: 3,
-        pointRadius: 5,
-        pointHoverRadius: 8,
-        pointBackgroundColor: '#06B6D4',
-        pointBorderColor: '#0891B2',
-        pointBorderWidth: 2,
-        pointHoverBackgroundColor: '#67E8F9',
-        pointHoverBorderColor: '#0891B2',
-        tension: 0.3,
-        fill: true,
-      }]
-    };
-  }, [trades]);
+  const sortedTrades = useMemo(() => (
+    [...trades]
+      .sort((a, b) => new Date(a.executed_at).getTime() - new Date(b.executed_at).getTime())
+  ), [trades]);
 
-  const chartOptions = {
-    responsive: true,
-    maintainAspectRatio: false,
-    scales: {
-      x: {
-        type: 'time' as const,
-        time: { 
-          displayFormats: { minute: 'HH:mm' },
-          tooltipFormat: 'MMM d, HH:mm:ss'
-        },
-        grid: { 
-          color: 'rgba(59, 130, 246, 0.1)',
-          borderColor: 'rgba(59, 130, 246, 0.2)'
-        },
-        ticks: { 
-          color: 'rgba(156, 163, 175, 0.8)',
-          font: { family: 'monospace', size: 11 }
-        },
-        border: { color: 'rgba(59, 130, 246, 0.2)' }
+  const lineData = useMemo(() => (
+    sortedTrades.map((trade) => ({
+      time: Math.floor(new Date(trade.executed_at).getTime() / 1000) as UTCTimestamp,
+      value: trade.price,
+    }))
+  ), [sortedTrades]);
+
+  const firstPrice = sortedTrades[0]?.price ?? null;
+  const lastPrice = sortedTrades[sortedTrades.length - 1]?.price ?? null;
+  const change = firstPrice !== null && lastPrice !== null ? lastPrice - firstPrice : null;
+  const changePct = change !== null && firstPrice ? (change / firstPrice) * 100 : null;
+
+  useEffect(() => {
+    if (!containerRef.current || chartRef.current) return;
+
+    const chart = createChart(containerRef.current, {
+      autoSize: true,
+      layout: {
+        background: { type: ColorType.Solid, color: 'transparent' },
+        textColor: '#CBD5F5',
       },
-      y: {
-        grid: { 
-          color: 'rgba(59, 130, 246, 0.1)',
-          borderColor: 'rgba(59, 130, 246, 0.2)'
+      grid: {
+        vertLines: { color: 'rgba(8, 145, 178, 0.08)', style: 1 },
+        horzLines: { color: 'rgba(8, 145, 178, 0.04)', style: 1 },
+      },
+      rightPriceScale: {
+        borderColor: 'rgba(6, 182, 212, 0.3)',
+        scaleMargins: { top: 0.1, bottom: 0.2 },
+        textColor: '#E2E8F0',
+      },
+      timeScale: {
+        borderColor: 'rgba(6, 182, 212, 0.3)',
+        rightOffset: 6,
+        tickMarkFormatter: (time) => new Date((time as number) * 1000).toLocaleTimeString(),
+      },
+      crosshair: {
+        mode: CrosshairMode.Magnet,
+        vertLine: {
+          color: 'rgba(59, 130, 246, 0.6)',
+          style: 3,
+          width: 1,
+          labelBackgroundColor: 'rgba(30, 64, 175, 0.8)',
         },
-        ticks: { 
-          color: 'rgba(156, 163, 175, 0.8)',
-          font: { family: 'monospace', size: 11 },
-          callback: (value: any) => `$${Number(value).toFixed(2)}`
+        horzLine: {
+          color: 'rgba(59, 130, 246, 0.6)',
+          labelBackgroundColor: 'rgba(30, 64, 175, 0.8)',
         },
-        border: { color: 'rgba(59, 130, 246, 0.2)' }
+      },
+      localization: {
+        priceFormatter: (price: number) => `$${price.toFixed(2)}`,
+      },
+    });
+
+    const series = chart.addAreaSeries({
+      lineColor: '#0EA5E9',
+      topColor: 'rgba(14, 165, 233, 0.45)',
+      bottomColor: 'rgba(14, 165, 233, 0.05)',
+      lineWidth: 3,
+      priceLineVisible: true,
+      priceLineColor: '#38BDF8',
+      priceLineWidth: 1,
+    });
+
+    chartRef.current = chart;
+    seriesRef.current = series;
+
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        chart.applyOptions({ width, height });
       }
-    },
-    plugins: {
-      legend: { display: false },
-      tooltip: {
-        backgroundColor: 'rgba(17, 24, 39, 0.95)',
-        titleColor: '#60A5FA',
-        bodyColor: '#E5E7EB',
-        borderColor: '#3B82F6',
-        borderWidth: 1,
-        cornerRadius: 8,
-        titleFont: { family: 'monospace', size: 12 },
-        bodyFont: { family: 'monospace', size: 12 },
-        callbacks: {
-          label: (context: any) => `PRICE: $${context.parsed.y.toFixed(2)}`,
-          title: (context: any) => `${context[0].label}`
-        }
-      }
-    },
-    interaction: { intersect: false, mode: 'index' as const }
-  };
+    });
+
+    observer.observe(containerRef.current);
+
+    return () => {
+      observer.disconnect();
+      chartRef.current = null;
+      seriesRef.current = null;
+      chart.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!seriesRef.current) return;
+    if (!lineData.length) {
+      seriesRef.current.setData([]);
+      return;
+    }
+
+    seriesRef.current.setData(lineData);
+    const lastPoint = lineData[lineData.length - 1];
+    seriesRef.current.setMarkers([
+      {
+        time: lastPoint.time,
+        position: 'aboveBar',
+        color: '#38BDF8',
+        shape: 'circle',
+        text: 'last',
+      },
+    ]);
+    chartRef.current?.timeScale().fitContent();
+  }, [lineData]);
+
+  const changeLabel = change !== null && changePct !== null
+    ? `${change >= 0 ? '+' : ''}${change.toFixed(2)} (${changePct >= 0 ? '+' : ''}${changePct.toFixed(2)}%)`
+    : '—';
 
   return (
     <div className="rounded-xl border border-gray-700/50 bg-gray-900/50 backdrop-blur-sm p-6 shadow-2xl">
-      <div className="mb-4 flex items-center justify-between border-b border-gray-700/30 pb-3">
-        <h2 className="text-xl font-bold text-white font-mono tracking-wide">
-          PRICE CHART
-        </h2>
-        <div className="flex items-center space-x-3">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-gray-700/30 pb-3">
+        <div>
+          <h2 className="text-xl font-bold text-white font-mono tracking-wide">PRICE ACTION</h2>
+          <p className="text-xs uppercase tracking-[0.4em] text-cyan-400/70 font-semibold mt-1">{symbol}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-4 text-sm font-mono">
           <div className="flex items-center space-x-2">
-            <div className="h-2 w-2 rounded-full bg-cyan-400 animate-pulse"></div>
-            <span className="text-sm text-cyan-400 font-mono">{trades.length} TRADES</span>
+            <div className="h-2 w-2 rounded-full bg-cyan-400 animate-pulse" />
+            <span className="text-cyan-300">LIVE</span>
           </div>
-          <div className="h-4 w-px bg-gray-700"></div>
-          <span className="text-xs text-gray-500 font-mono">LIVE</span>
+          <div className="h-4 w-px bg-gray-700" />
+          <div className="text-gray-400">
+            {trades.length} trades
+          </div>
+          <div className={`rounded-full px-3 py-1 text-xs ${change !== null && change >= 0 ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/30' : 'bg-red-500/10 text-red-300 border border-red-500/30'}`}>
+            {lastPrice !== null ? `$${lastPrice.toFixed(2)}` : '—'}
+            <span className="ml-2 text-[11px] opacity-80">{changeLabel}</span>
+          </div>
         </div>
       </div>
-      <div className="h-72">
-        {chartData ? (
-          <Line data={chartData} options={chartOptions} />
-        ) : (
-          <div className="flex h-full items-center justify-center">
+      <div className="relative h-72">
+        <div ref={containerRef} className="absolute inset-0" />
+        {!lineData.length && (
+          <div className="absolute inset-0 flex items-center justify-center">
             <div className="text-center">
-              <div className="h-16 w-16 mx-auto mb-4 rounded-full border-2 border-gray-700 flex items-center justify-center">
-                <svg className="h-8 w-8 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+              <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full border-2 border-dashed border-gray-700">
+                <svg className="h-7 w-7 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
                 </svg>
               </div>
-              <p className="text-gray-500 font-mono text-sm">NO TRADE DATA AVAILABLE</p>
+              <p className="text-gray-500 font-mono text-sm">Waiting for trades…</p>
             </div>
           </div>
         )}
