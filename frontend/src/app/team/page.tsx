@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { teamGet, teamRotateCode, teamUpdateName, teamRemoveMember } from '../../lib/api';
+import { teamGet, teamRotateCode, teamUpdateName, teamRemoveMember, listTeamApiKeys, createTeamApiKey, revokeTeamApiKey, type TeamAPIKey, type TeamAPIKeyCreateOut } from '../../lib/api';
 
 type Member = { id: string; email: string; name: string; role: string };
 type TeamSettings = { id: string; name: string; join_code: string; role: string; members: Member[] };
@@ -14,6 +14,10 @@ export default function TeamSettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState('');
   const isOwner = useMemo(() => data?.role === 'admin', [data?.role]);
+  const [keys, setKeys] = useState<TeamAPIKey[] | null>(null);
+  const [keysLoading, setKeysLoading] = useState(false);
+  const [newKeyName, setNewKeyName] = useState('');
+  const [createdKey, setCreatedKey] = useState<TeamAPIKeyCreateOut | null>(null);
 
   const load = async () => {
     try {
@@ -34,6 +38,23 @@ export default function TeamSettingsPage() {
     load();
   }, [router]);
 
+  useEffect(() => {
+    const loadKeys = async () => {
+      if (!isOwner) return;
+      setKeysLoading(true);
+      try {
+        const k = await listTeamApiKeys();
+        setKeys(k);
+      } catch (e) {
+        // Surface key loading errors in the main error box if team loaded
+        setError((e as any)?.message || 'Failed to load API keys');
+      } finally {
+        setKeysLoading(false);
+      }
+    };
+    void loadKeys();
+  }, [isOwner]);
+
   const rotate = async () => {
     if (!isOwner) return;
     const res = await teamRotateCode();
@@ -50,6 +71,26 @@ export default function TeamSettingsPage() {
     if (!isOwner) return;
     await teamRemoveMember(userId);
     await load();
+  };
+
+  const createKey = async () => {
+    if (!isOwner || !newKeyName.trim()) return;
+    const res = await createTeamApiKey(newKeyName.trim());
+    setCreatedKey(res);
+    setNewKeyName('');
+    try {
+      const k = await listTeamApiKeys();
+      setKeys(k);
+    } catch {}
+  };
+
+  const revokeKey = async (id: string) => {
+    if (!isOwner) return;
+    await revokeTeamApiKey(id);
+    try {
+      const k = await listTeamApiKeys();
+      setKeys(k);
+    } catch {}
   };
 
   if (loading) return <div className="p-6 text-gray-300 font-mono">Loading team…</div>;
@@ -103,6 +144,76 @@ export default function TeamSettingsPage() {
             ))}
           </div>
         </div>
+
+        {isOwner && (
+          <div className="mt-8">
+            <h2 className="text-xl text-white font-mono mb-3">API Keys</h2>
+            <p className="text-gray-400 font-mono mb-3">Create keys for bots and revoke compromised keys.</p>
+
+            <div className="mb-4 flex gap-2 items-center">
+              <input
+                aria-label="API key name"
+                placeholder="Key name (e.g., Trading Bot)"
+                className="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white font-mono"
+                value={newKeyName}
+                onChange={e => setNewKeyName(e.target.value)}
+              />
+              <button
+                onClick={createKey}
+                disabled={!newKeyName.trim()}
+                className="px-3 py-2 bg-cyan-600 disabled:bg-cyan-900/50 hover:bg-cyan-700 text-white rounded font-mono"
+              >Create</button>
+            </div>
+
+            {createdKey && (
+              <div className="mb-4 rounded border border-yellow-500/40 bg-yellow-900/20 p-3">
+                <div className="text-yellow-300 font-mono mb-1">Copy your new API key now. You won't be able to see it again.</div>
+                <div className="flex items-center gap-2">
+                  <code className="px-2 py-1 bg-gray-800 text-cyan-300 rounded font-mono break-all">{createdKey.api_key}</code>
+                  <button onClick={() => navigator.clipboard?.writeText(createdKey.api_key)} className="px-2 py-1 bg-gray-800 border border-gray-700 text-gray-300 rounded font-mono">Copy</button>
+                  <button onClick={() => setCreatedKey(null)} className="px-2 py-1 bg-gray-800 border border-gray-700 text-gray-300 rounded font-mono">Dismiss</button>
+                </div>
+              </div>
+            )}
+
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-left text-sm">
+                <thead className="text-gray-300">
+                  <tr>
+                    <th className="px-2 py-1 font-mono">Name</th>
+                    <th className="px-2 py-1 font-mono">Created</th>
+                    <th className="px-2 py-1 font-mono">Last used</th>
+                    <th className="px-2 py-1 font-mono">Status</th>
+                    <th className="px-2 py-1 font-mono">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="text-white">
+                  {keysLoading && (
+                    <tr><td className="px-2 py-2 font-mono text-gray-400" colSpan={5}>Loading API keys…</td></tr>
+                  )}
+                  {!keysLoading && keys && keys.length === 0 && (
+                    <tr><td className="px-2 py-2 font-mono text-gray-400" colSpan={5}>No API keys yet.</td></tr>
+                  )}
+                  {!keysLoading && keys && keys.map(k => (
+                    <tr key={k.id} className="border-t border-gray-800">
+                      <td className="px-2 py-2 font-mono">{k.name}</td>
+                      <td className="px-2 py-2 font-mono">{new Date(k.created_at).toLocaleString()}</td>
+                      <td className="px-2 py-2 font-mono">{k.last_used ? new Date(k.last_used).toLocaleString() : '—'}</td>
+                      <td className="px-2 py-2 font-mono">{k.is_active ? 'active' : 'revoked'}</td>
+                      <td className="px-2 py-2 font-mono">
+                        {k.is_active ? (
+                          <button onClick={() => revokeKey(k.id)} className="px-2 py-1 bg-red-900/40 border border-red-500/40 text-red-300 rounded">Revoke</button>
+                        ) : (
+                          <span className="text-gray-500">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -920,6 +920,112 @@ async def remove_member(user_id: str, api_key: RequireAPIKey, session: DbSession
     return {"status": "removed"}
 
 
+# Team API Keys management
+class TeamAPIKeyOut(BaseModel):
+    id: str
+    name: str
+    created_at: datetime
+    last_used: datetime | None = None
+    is_active: bool
+
+
+class TeamAPIKeyCreateIn(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+
+
+class TeamAPIKeyCreateOut(BaseModel):
+    id: str
+    name: str
+    created_at: datetime
+    api_key: str
+
+
+async def _require_team_owner(session: AsyncSession, team_id: _Any, api_key_hash: str) -> tuple[TeamModel, UserModel]:
+    team = await _get_team_by_id(session, team_id)
+    user = await session.scalar(
+        select(UserModel)
+        .join(APIKeyModel, APIKeyModel.user_id == UserModel.id)
+        .where(APIKeyModel.key_hash == api_key_hash)
+    )
+    if not user:
+        raise HTTPException(status_code=403, detail="User not found for API key")
+    tm = await session.scalar(
+        select(TeamMemberModel).where(
+            TeamMemberModel.team_id == team.id, TeamMemberModel.user_id == user.id
+        )
+    )
+    if not tm or not _is_owner(tm.role):
+        raise HTTPException(status_code=403, detail="Only team owner can manage API keys")
+    return team, user
+
+
+@api_router.get("/teams/me/api-keys", response_model=list[TeamAPIKeyOut])
+async def list_team_api_keys(api_key: RequireAPIKey, session: DbSession) -> list[TeamAPIKeyOut]:
+    team, _user = await _require_team_owner(session, api_key["team_id"], api_key["key_hash"])
+    rows = (
+        await session.execute(
+            select(APIKeyModel).where(APIKeyModel.team_id == team.id).order_by(APIKeyModel.created_at.asc())
+        )
+    ).scalars().all()
+    out: list[TeamAPIKeyOut] = []
+    for r in rows:
+        out.append(
+            TeamAPIKeyOut(
+                id=str(r.id),
+                name=r.name,
+                created_at=r.created_at,
+                last_used=r.last_used,
+                is_active=r.is_active,
+            )
+        )
+    return out
+
+
+@api_router.post("/teams/me/api-keys", response_model=TeamAPIKeyCreateOut)
+async def create_team_api_key(
+    payload: TeamAPIKeyCreateIn, api_key: RequireAPIKey, session: DbSession
+) -> TeamAPIKeyCreateOut:
+    team, user = await _require_team_owner(session, api_key["team_id"], api_key["key_hash"])
+    # Create a new API key for this team
+    import secrets
+    import hashlib
+
+    api_key_value = secrets.token_urlsafe(32)
+    api_key_hash = hashlib.sha256(api_key_value.encode()).hexdigest()
+
+    new_row = APIKeyModel(
+        key_hash=api_key_hash,
+        team_id=team.id,
+        user_id=user.id,
+        name=payload.name,
+        is_admin=False,
+    )
+    session.add(new_row)
+    await session.commit()
+    return TeamAPIKeyCreateOut(
+        id=str(new_row.id), name=new_row.name, created_at=new_row.created_at, api_key=api_key_value
+    )
+
+
+@api_router.delete("/teams/me/api-keys/{key_id}")
+async def revoke_team_api_key(key_id: str, api_key: RequireAPIKey, session: DbSession) -> dict[str, str]:
+    team, _user = await _require_team_owner(session, api_key["team_id"], api_key["key_hash"])
+    # Parse id
+    _kid: _Any
+    try:
+        _kid = _uuid.UUID(str(key_id))
+    except Exception:
+        _kid = key_id
+    row = await session.get(APIKeyModel, _kid)
+    if not row or row.team_id != team.id:
+        raise HTTPException(status_code=404, detail="API key not found")
+    # Soft-revoke
+    row.is_active = False
+    session.add(row)
+    await session.commit()
+    return {"status": "revoked", "id": str(row.id)}
+
+
 class OrderBookLevel(BaseModel):
     price: float
     quantity: int

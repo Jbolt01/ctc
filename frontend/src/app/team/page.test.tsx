@@ -10,6 +10,9 @@ jest.mock('../../lib/api', () => ({
   teamUpdateName: jest.fn(),
   teamRotateCode: jest.fn(),
   teamRemoveMember: jest.fn(),
+  listTeamApiKeys: jest.fn(),
+  createTeamApiKey: jest.fn(),
+  revokeTeamApiKey: jest.fn(),
 }))
 
 import * as api from '../../lib/api'
@@ -40,6 +43,7 @@ describe('TeamSettingsPage', () => {
         { id: 'u2', email: 'mem@example.com', name: 'Member', role: 'member' },
       ]
     })
+    ;(api.listTeamApiKeys as jest.Mock).mockResolvedValue([])
     ;(api.teamRotateCode as jest.Mock).mockResolvedValue({ join_code: 'ZZZZZZZZ' })
     ;(api.teamUpdateName as jest.Mock).mockResolvedValue({ status: 'ok' })
     ;(api.teamRemoveMember as jest.Mock).mockResolvedValue({ status: 'removed' })
@@ -54,5 +58,40 @@ describe('TeamSettingsPage', () => {
     const removeButtons = await screen.findAllByRole('button', { name: 'Remove' })
     await userEvent.click(removeButtons[0])
     await waitFor(() => expect(api.teamRemoveMember).toHaveBeenCalled())
+  })
+
+  it('shows API keys for owner, allows create and revoke', async () => {
+    ;(api.teamGet as jest.Mock).mockResolvedValue({
+      id: 't1', name: 'Team One', join_code: 'ABCDEFGH', role: 'admin', members: []
+    })
+    ;(api.listTeamApiKeys as jest.Mock).mockResolvedValue([
+      { id: 'k1', name: 'Bot 1', created_at: new Date('2024-01-01').toISOString(), last_used: null, is_active: true },
+    ])
+    ;(api.createTeamApiKey as jest.Mock).mockResolvedValue({
+      id: 'k2', name: 'New Bot', created_at: new Date('2024-01-02').toISOString(), api_key: 'secret-key'
+    })
+    ;(api.revokeTeamApiKey as jest.Mock).mockResolvedValue({ status: 'revoked', id: 'k1' })
+
+    render(<TeamSettingsPage />)
+
+    // Keys list loads and shows existing key
+    expect(await screen.findByText('API Keys')).toBeInTheDocument()
+    expect(await screen.findByText('Bot 1')).toBeInTheDocument()
+
+    // Create a key
+    const nameInput = screen.getByLabelText('API key name') as HTMLInputElement
+    fireEvent.change(nameInput, { target: { value: 'New Bot' } })
+    await userEvent.click(screen.getByRole('button', { name: 'Create' }))
+    await waitFor(() => expect(api.createTeamApiKey).toHaveBeenCalledWith('New Bot'))
+    expect(await screen.findByText(/Copy your new API key now/)).toBeInTheDocument()
+
+    // Dismiss banner
+    await userEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
+    await waitFor(() => expect(screen.queryByText(/Copy your new API key now/)).toBeNull())
+
+    // Revoke an existing key
+    const revokeBtn = await screen.findByRole('button', { name: 'Revoke' })
+    await userEvent.click(revokeBtn)
+    await waitFor(() => expect(api.revokeTeamApiKey).toHaveBeenCalledWith('k1'))
   })
 })
