@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import NavBar from '../../../components/NavBar';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import {
+  AreaSeries,
   ColorType,
   CrosshairMode,
   createChart,
@@ -350,7 +351,7 @@ function PriceChart({ trades, symbol }: { trades: TradeRecord[]; symbol: string 
       },
     });
 
-    const series = chart.addAreaSeries({
+    const series = chart.addSeries(AreaSeries, {
       lineColor: '#0EA5E9',
       topColor: 'rgba(14, 165, 233, 0.45)',
       bottomColor: 'rgba(14, 165, 233, 0.05)',
@@ -388,16 +389,6 @@ function PriceChart({ trades, symbol }: { trades: TradeRecord[]; symbol: string 
     }
 
     seriesRef.current.setData(lineData);
-    const lastPoint = lineData[lineData.length - 1];
-    seriesRef.current.setMarkers([
-      {
-        time: lastPoint.time,
-        position: 'aboveBar',
-        color: '#38BDF8',
-        shape: 'circle',
-        text: 'last',
-      },
-    ]);
     chartRef.current?.timeScale().fitContent();
   }, [lineData]);
 

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef } from 'react';
 import type { IChartApi, ISeriesApi, UTCTimestamp } from 'lightweight-charts';
-import { ColorType, CrosshairMode, createChart } from 'lightweight-charts';
+import { AreaSeries, ColorType, CrosshairMode, createChart } from 'lightweight-charts';
 import type { Candle } from '../hooks/useMarketData';
 
 export default function MiniCandleChart({ candles }: { candles: Candle[] }) {
@@ -49,7 +49,7 @@ export default function MiniCandleChart({ candles }: { candles: Candle[] }) {
       autoSize: true,
     });
 
-    const series = chart.addAreaSeries({
+    const series = chart.addSeries(AreaSeries, {
       lineColor: '#6366F1',
       topColor: 'rgba(99, 102, 241, 0.45)',
       bottomColor: 'rgba(99, 102, 241, 0.05)',
