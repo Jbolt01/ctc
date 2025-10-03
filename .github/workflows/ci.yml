@@ -104,8 +104,14 @@ jobs:
         with:
           version: 10.14.0
           run_install: false
-          cache: true
-          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ~/.pnpm-store
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('frontend/pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-store-${{ runner.os }}-
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -138,17 +144,23 @@ jobs:
     permissions:
       contents: read
       packages: write
+    env:
+      FRONTEND_BUILD_ARGS: |
+        NEXT_PUBLIC_GOOGLE_CLIENT_ID=${{ secrets.NEXT_PUBLIC_GOOGLE_CLIENT_ID }}
+        NEXT_PUBLIC_API_URL=${{ secrets.NEXT_PUBLIC_API_URL }}
+        NEXT_PUBLIC_WS_URL=${{ secrets.NEXT_PUBLIC_WS_URL }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - image: backend
             context: ./backend
-            cache-scope: backend
+            cache_scope: backend
+            requires_frontend_secrets: false
           - image: frontend
             context: ./frontend
-            cache-scope: frontend
-            requires-frontend-secrets: true
+            cache_scope: frontend
+            requires_frontend_secrets: true
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -165,17 +177,6 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Prepare frontend build args
-        if: matrix.requires-frontend-secrets == true
-        run: |
-          {
-            echo "BUILD_ARGS<<'EOF'"
-            echo "NEXT_PUBLIC_GOOGLE_CLIENT_ID=${{ secrets.NEXT_PUBLIC_GOOGLE_CLIENT_ID }}"
-            echo "NEXT_PUBLIC_API_URL=${{ secrets.NEXT_PUBLIC_API_URL }}"
-            echo "NEXT_PUBLIC_WS_URL=${{ secrets.NEXT_PUBLIC_WS_URL }}"
-            echo "EOF"
-          } >> "$GITHUB_ENV"
 
       - name: Extract metadata
         id: meta
@@ -195,8 +196,9 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: ${{ env.BUILD_ARGS || '' }}
-          cache-from: type=gha,scope=${{ matrix.cache-scope }}
-          cache-to: type=gha,scope=${{ matrix.cache-scope }},mode=max
+          cache-from: type=gha,scope=${{ matrix.cache_scope }}
+          cache-to: type=gha,scope=${{ matrix.cache_scope }},mode=max
+          build-args: ${{ matrix.requires_frontend_secrets == true && env.FRONTEND_BUILD_ARGS || '' }}
 
   deploy-remote:
     name: Deploy to Remote Server
