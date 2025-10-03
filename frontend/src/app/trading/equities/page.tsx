@@ -3,11 +3,13 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import NavBar from '../../../components/NavBar';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
+import MiniCandleChart from '../../../components/MiniCandleChart';
 import {
   AreaSeries,
   ColorType,
   CrosshairMode,
   createChart,
+  LineSeries,
   type IChartApi,
   type ISeriesApi,
   type UTCTimestamp,
@@ -24,7 +26,7 @@ import {
   type TradeRecord,
   type OrderSummary
 } from '../../../lib/api';
-import { useMarketData } from '../../../hooks/useMarketData';
+import { useMarketData, type Candle } from '../../../hooks/useMarketData';
 
 // Custom hooks
 function useSymbols(enabled = true) {
@@ -72,6 +74,9 @@ export default function EquitiesTradingPage() {
   const [showOrderForm, setShowOrderForm] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [userInfo, setUserInfo] = useState<{user: any, teams: any[]} | null>(null);
+  const timeframePresets = ['1m', '5m', '15m', '1H', '4H', '1D'];
+  const [timeframe, setTimeframe] = useState<string>('1H');
+  const [chartMode, setChartMode] = useState<'area' | 'line'>('area');
   
   // Check authentication on mount
   useEffect(() => {
@@ -103,6 +108,46 @@ export default function EquitiesTradingPage() {
   const { data: trades } = useTrades(symbol, isAuthenticated);  // Team-filtered trades for recent trades panel
   const { data: marketTrades } = useMarketTrades(symbol, isAuthenticated);  // All market trades for price chart
   const { data: allOrders } = useAllOrders(symbol, isAuthenticated);
+
+  const sortedMarketTrades = useMemo(() => {
+    const list = marketTrades?.trades ?? [];
+    return list
+      .slice()
+      .sort((a, b) => new Date(a.executed_at).getTime() - new Date(b.executed_at).getTime());
+  }, [marketTrades?.trades]);
+
+  const priceSeries = useMemo(
+    () =>
+      sortedMarketTrades.map((trade) => ({
+        time: Math.floor(new Date(trade.executed_at).getTime() / 1000) as UTCTimestamp,
+        value: trade.price,
+      })),
+    [sortedMarketTrades],
+  );
+
+  const lastTradePrice = priceSeries.length ? priceSeries[priceSeries.length - 1].value : null;
+  const firstTradePrice = priceSeries.length ? priceSeries[0].value : null;
+  const priceChange =
+    lastTradePrice !== null && firstTradePrice !== null ? lastTradePrice - firstTradePrice : null;
+  const priceChangePct =
+    priceChange !== null && firstTradePrice ? (priceChange / firstTradePrice) * 100 : null;
+  const sessionHigh = priceSeries.length
+    ? priceSeries.reduce((max, point) => Math.max(max, point.value), Number.NEGATIVE_INFINITY)
+    : null;
+  const sessionLow = priceSeries.length
+    ? priceSeries.reduce((min, point) => Math.min(min, point.value), Number.POSITIVE_INFINITY)
+    : null;
+  const sessionVolume = sortedMarketTrades.reduce((sum, trade) => sum + trade.quantity, 0);
+  const watchlistCandles = useMemo(
+    () => buildCandlesFromTrades(sortedMarketTrades),
+    [sortedMarketTrades],
+  );
+  const quotedSpread = useMemo(() => {
+    const bestBid = ob?.bids?.[0]?.price ?? null;
+    const bestAsk = ob?.asks?.[0]?.price ?? null;
+    if (bestBid === null || bestAsk === null) return null;
+    return bestAsk - bestBid;
+  }, [ob]);
 
   // If the stored key is invalid or missing, bounce back to login
   useEffect(() => {
@@ -184,133 +229,471 @@ export default function EquitiesTradingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-gray-900 to-black">
-      <NavBar />
-      <main className="mx-auto max-w-[1920px] px-6 py-8">
-        {/* Header */}
-        <div className="mb-8 flex items-center justify-between border-b border-gray-800 pb-6">
-          <div>
-            <h1 className="text-4xl font-bold tracking-tight text-white">
-              <span className="bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent">
-                TRADING TERMINAL
-              </span>
-            </h1>
-            <p className="mt-2 text-gray-400 font-mono tracking-wide">
-              REAL-TIME MARKET DATA • ADVANCED ORDER MANAGEMENT • LIVE EXECUTION
-            </p>
-            {userInfo && userInfo.teams.length > 0 && (
-              <div className="mt-3 flex items-center space-x-4">
-                <div className="text-sm text-cyan-400 font-mono">
-                  Trading as: <span className="text-white font-semibold">{userInfo.teams[0].name}</span>
+    <div className="flex min-h-screen bg-slate-950 text-slate-100">
+      <SideDock onOpenDocs={() => window.open('https://tradingview.com', '_blank')} onToggleTheme={() => setChartMode((prev) => (prev === 'area' ? 'line' : 'area'))} />
+      <div className="flex-1 flex flex-col">
+        <NavBar />
+        <main className="flex-1 overflow-y-auto px-6 py-6">
+          <TopToolbar
+            symbol={symbol}
+            symbolOptions={symbolOptions}
+            onSymbolChange={(value) => setSymbol(value)}
+            timeframe={timeframe}
+            onTimeframeChange={setTimeframe}
+            timeframePresets={timeframePresets}
+            chartMode={chartMode}
+            onChartModeChange={setChartMode}
+            lastPrice={lastTradePrice}
+            priceChange={priceChange}
+            priceChangePct={priceChangePct}
+            quote={quote}
+            teamName={userInfo?.teams?.[0]?.name}
+            teamRole={userInfo?.teams?.[0]?.role}
+            onOpenTicket={() => setShowOrderForm(true)}
+          />
+
+          {!hasSymbols ? (
+            <div className="mt-10 rounded-2xl border border-slate-800 bg-slate-900/70 p-12 text-center shadow-2xl">
+              <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full border border-cyan-500/40 bg-cyan-500/10">
+                <svg className="h-8 w-8 text-cyan-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+              </div>
+              <p className="text-base text-slate-300 font-mono">No symbols available. Ask an admin to add symbols on the Admin page.</p>
+            </div>
+          ) : (
+            <>
+              <div className="grid gap-6 xl:grid-cols-[280px_minmax(0,1fr)_360px] 2xl:grid-cols-[320px_minmax(0,1fr)_380px]">
+                <WatchlistPanel
+                  symbols={symbolOptions}
+                  activeSymbol={symbol}
+                  onSelectSymbol={setSymbol}
+                  candles={watchlistCandles}
+                  quote={quote}
+                  lastPrice={lastTradePrice}
+                  priceChangePct={priceChangePct}
+                  sessionVolume={sessionVolume}
+                  timeframe={timeframe}
+                />
+
+                <div className="space-y-6">
+                  <PriceChart
+                    symbol={symbol}
+                    data={priceSeries}
+                    lastPrice={lastTradePrice}
+                    priceChange={priceChange}
+                    priceChangePct={priceChangePct}
+                    timeframe={timeframe}
+                    mode={chartMode}
+                  />
+                  <MarketPulseBar
+                    lastPrice={lastTradePrice}
+                    change={priceChange}
+                    changePct={priceChangePct}
+                    high={sessionHigh}
+                    low={sessionLow}
+                    volume={sessionVolume}
+                    spread={quotedSpread}
+                  />
                 </div>
-                <div className="text-xs text-gray-500 px-2 py-1 bg-gray-800 rounded">
-                  {userInfo.teams[0].role}
+
+                <OrderEntryPanel
+                  symbol={symbol}
+                  side={side}
+                  setSide={setSide}
+                  type={type}
+                  setType={setType}
+                  qty={qty}
+                  setQty={setQty}
+                  price={price}
+                  setPrice={setPrice}
+                  onPlaceOrder={handlePlaceOrder}
+                  isLoading={placeOrderMutation.isPending}
+                  show={showOrderForm}
+                  onToggle={() => setShowOrderForm(!showOrderForm)}
+                />
+              </div>
+
+              <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px] 2xl:grid-cols-[minmax(0,1fr)_380px]">
+                <OrderBookLadder orderbook={ob} quote={quote} onPriceClick={handleLadderClick} symbol={symbol} />
+                <TradesPanel trades={trades?.trades || []} />
+              </div>
+
+              <div className="mt-6 grid gap-6 xl:grid-cols-2">
+                <PositionsPanel positions={positions} />
+                <OrdersPanel
+                  orders={allOrders?.orders || []}
+                  onCancelOrder={handleCancelOrder}
+                  cancelLoading={cancelOrderMutation.isPending}
+                />
+              </div>
+            </>
+          )}
+        </main>
+      </div>
+    </div>
+  );
+}
+
+type SymbolOption = { symbol: string; name?: string; [key: string]: unknown };
+
+function SideDock({ onOpenDocs, onToggleTheme }: { onOpenDocs: () => void; onToggleTheme: () => void }) {
+  const navItems = [
+    { label: 'Chart', icon: '📈' },
+    { label: 'Orders', icon: '📑' },
+    { label: 'News', icon: '📰' },
+    { label: 'Calendar', icon: '🗓️' },
+  ];
+
+  return (
+    <aside className="hidden xl:flex w-20 flex-col border-r border-slate-900 bg-slate-950/90 backdrop-blur">
+      <div className="flex h-16 items-center justify-center border-b border-slate-900">
+        <span className="text-lg font-bold tracking-[0.6em] text-cyan-300">CTC</span>
+      </div>
+      <nav className="flex-1 flex flex-col items-center gap-4 py-8">
+        {navItems.map((item) => (
+          <button
+            key={item.label}
+            type="button"
+            className="group relative flex h-12 w-12 items-center justify-center rounded-2xl border border-transparent bg-slate-900/60 text-slate-400 transition-all hover:border-cyan-500/60 hover:text-cyan-300 hover:shadow-lg hover:shadow-cyan-500/20"
+          >
+            <span className="text-xl" aria-hidden>{item.icon}</span>
+            <span className="pointer-events-none absolute left-14 rounded-lg bg-slate-900/95 px-3 py-1 text-xs font-mono text-slate-200 opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
+              {item.label}
+            </span>
+          </button>
+        ))}
+      </nav>
+      <div className="flex flex-col items-center gap-3 border-t border-slate-900 p-4">
+        <button
+          onClick={onToggleTheme}
+          type="button"
+          className="flex h-12 w-12 items-center justify-center rounded-xl border border-slate-800 bg-slate-900/80 text-slate-300 transition-all hover:border-cyan-500/60 hover:text-cyan-200"
+        >
+          <span className="text-lg" aria-hidden>🎨</span>
+        </button>
+        <button
+          onClick={onOpenDocs}
+          type="button"
+          className="flex h-12 w-12 items-center justify-center rounded-xl border border-slate-800 bg-slate-900/80 text-slate-300 transition-all hover:border-cyan-500/60 hover:text-cyan-200"
+        >
+          <span className="text-lg" aria-hidden>📚</span>
+        </button>
+      </div>
+    </aside>
+  );
+}
+
+function TopToolbar({
+  symbol,
+  symbolOptions,
+  onSymbolChange,
+  timeframe,
+  onTimeframeChange,
+  timeframePresets,
+  chartMode,
+  onChartModeChange,
+  lastPrice,
+  priceChange,
+  priceChangePct,
+  quote,
+  teamName,
+  teamRole,
+  onOpenTicket,
+}: {
+  symbol: string;
+  symbolOptions: SymbolOption[];
+  onSymbolChange: (value: string) => void;
+  timeframe: string;
+  onTimeframeChange: (value: string) => void;
+  timeframePresets: string[];
+  chartMode: 'area' | 'line';
+  onChartModeChange: (mode: 'area' | 'line') => void;
+  lastPrice: number | null;
+  priceChange: number | null;
+  priceChangePct: number | null;
+  quote: { bid?: number | null; ask?: number | null } | null;
+  teamName?: string;
+  teamRole?: string;
+  onOpenTicket: () => void;
+}) {
+  const positive = (priceChange ?? 0) >= 0;
+  const priceLabel = lastPrice !== null ? `$${lastPrice.toFixed(2)}` : '—';
+  const changeLabel =
+    priceChange !== null && priceChangePct !== null
+      ? `${positive ? '+' : ''}${priceChange.toFixed(2)} (${positive ? '+' : ''}${priceChangePct.toFixed(2)}%)`
+      : '—';
+
+  return (
+    <section className="mb-6 flex flex-col gap-4 rounded-2xl border border-slate-900 bg-slate-900/70 px-6 py-5 shadow-2xl backdrop-blur">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex flex-wrap items-center gap-4">
+          <div>
+            <label className="text-xs font-mono uppercase tracking-[0.4em] text-slate-400">Instrument</label>
+            <div className="mt-1 flex items-center gap-3">
+              <select
+                value={symbol}
+                onChange={(e) => onSymbolChange(e.target.value)}
+                className="min-w-[160px] rounded-xl border border-slate-800 bg-slate-950 px-4 py-2 text-base font-semibold text-slate-100 transition-colors hover:border-cyan-500 focus:border-cyan-500 focus:outline-none"
+              >
+                {symbolOptions.map((s) => (
+                  <option key={s.symbol} value={s.symbol} className="bg-slate-900 text-slate-100">
+                    {s.symbol} {s.name ? `• ${s.name}` : ''}
+                  </option>
+                ))}
+              </select>
+              <div className="rounded-xl border border-slate-800 bg-slate-950 px-4 py-2 text-sm font-mono text-slate-300">
+                {teamName ? (
+                  <span>
+                    {teamName}
+                    {teamRole ? <span className="ml-2 text-cyan-400">{teamRole}</span> : null}
+                  </span>
+                ) : (
+                  '—'
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-mono uppercase tracking-[0.4em] text-slate-400">Timeframe</label>
+            <div className="mt-1 flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900/80 p-1">
+              {timeframePresets.map((preset) => {
+                const active = preset === timeframe;
+                return (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => onTimeframeChange(preset)}
+                    className={`rounded-lg px-3 py-1.5 text-sm font-mono transition-all ${
+                      active
+                        ? 'bg-cyan-500/20 text-cyan-200 border border-cyan-400/60 shadow shadow-cyan-500/20'
+                        : 'text-slate-400 hover:text-cyan-200 hover:bg-slate-800'
+                    }`}
+                  >
+                    {preset}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-mono uppercase tracking-[0.4em] text-slate-400">Chart</label>
+            <div className="mt-1 flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900/80 p-1">
+              <button
+                type="button"
+                onClick={() => onChartModeChange('area')}
+                className={`rounded-lg px-3 py-1.5 text-sm font-mono transition-all ${
+                  chartMode === 'area'
+                    ? 'bg-blue-500/20 text-blue-200 border border-blue-400/60 shadow shadow-blue-500/20'
+                    : 'text-slate-400 hover:text-blue-200 hover:bg-slate-800'
+                }`}
+              >
+                Area
+              </button>
+              <button
+                type="button"
+                onClick={() => onChartModeChange('line')}
+                className={`rounded-lg px-3 py-1.5 text-sm font-mono transition-all ${
+                  chartMode === 'line'
+                    ? 'bg-purple-500/20 text-purple-200 border border-purple-400/60 shadow shadow-purple-500/20'
+                    : 'text-slate-400 hover:text-purple-200 hover:bg-slate-800'
+                }`}
+              >
+                Line
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/80 px-4 py-3">
+            <div className="text-xs font-mono text-slate-400 uppercase tracking-[0.3em]">Last</div>
+            <div className="mt-1 flex items-end gap-2">
+              <span className="text-2xl font-mono font-bold text-slate-100">{priceLabel}</span>
+              <span className={`text-sm font-mono ${positive ? 'text-emerald-400' : 'text-red-400'}`}>{changeLabel}</span>
+            </div>
+          </div>
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/80 px-4 py-3 text-sm font-mono text-slate-300">
+            <div className="flex items-center gap-4">
+              <div>
+                <span className="text-xs text-slate-400 uppercase tracking-[0.3em]">Bid</span>
+                <div className="mt-1 text-emerald-300 font-semibold">{quote?.bid ? `$${quote.bid.toFixed(2)}` : '—'}</div>
+              </div>
+              <div>
+                <span className="text-xs text-slate-400 uppercase tracking-[0.3em]">Ask</span>
+                <div className="mt-1 text-rose-300 font-semibold">{quote?.ask ? `$${quote.ask.toFixed(2)}` : '—'}</div>
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={onOpenTicket}
+            type="button"
+            className="rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-500 px-6 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-cyan-500/30 transition-transform hover:scale-[1.02]"
+          >
+            Open Ticket
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function WatchlistPanel({
+  symbols,
+  activeSymbol,
+  onSelectSymbol,
+  candles,
+  quote,
+  lastPrice,
+  priceChangePct,
+  sessionVolume,
+  timeframe,
+}: {
+  symbols: SymbolOption[];
+  activeSymbol: string;
+  onSelectSymbol: (symbol: string) => void;
+  candles: Candle[];
+  quote: { bid?: number | null; ask?: number | null } | null;
+  lastPrice: number | null;
+  priceChangePct: number | null;
+  sessionVolume: number;
+  timeframe: string;
+}) {
+  const volumeLabel = sessionVolume ? `${sessionVolume.toLocaleString()} shares` : '—';
+  const changeColor = (priceChangePct ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400';
+
+  return (
+    <section className="rounded-2xl border border-slate-900 bg-slate-900/70 p-5 shadow-2xl backdrop-blur">
+      <div className="mb-4 flex items-center justify-between">
+        <div>
+          <h2 className="text-sm font-semibold uppercase tracking-[0.4em] text-slate-400">Watchlist</h2>
+          <p className="mt-1 text-xs text-slate-500">{timeframe.toUpperCase()} snapshot of tracked symbols</p>
+        </div>
+        <div className="rounded-xl border border-slate-800 bg-slate-950 px-3 py-1 text-xs font-mono text-slate-400">
+          Volume {volumeLabel}
+        </div>
+      </div>
+      <div className="space-y-2">
+        {symbols.map((item) => {
+          const isActive = item.symbol === activeSymbol;
+          return (
+            <button
+              key={item.symbol}
+              type="button"
+              onClick={() => onSelectSymbol(item.symbol)}
+              className={`group flex w-full items-center justify-between rounded-2xl border border-slate-900 bg-slate-950/60 px-4 py-3 text-left transition-all hover:border-cyan-500/60 hover:bg-slate-900/80 hover:shadow-lg hover:shadow-cyan-500/15 ${
+                isActive ? 'border-cyan-500/60 shadow-lg shadow-cyan-500/20' : ''
+              }`}
+            >
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-lg font-semibold text-slate-100">{item.symbol}</span>
+                  {item.name && <span className="text-xs text-slate-500">{item.name}</span>}
+                </div>
+                <div className="mt-1 flex items-center gap-3 text-xs font-mono text-slate-400">
+                  <span className="text-slate-200 font-semibold">
+                    {isActive && lastPrice !== null ? `$${lastPrice.toFixed(2)}` : '—'}
+                  </span>
+                  <span className={`text-xs font-semibold ${isActive ? changeColor : 'text-slate-500'}`}>
+                    {isActive && priceChangePct !== null ? `${priceChangePct >= 0 ? '+' : ''}${priceChangePct.toFixed(2)}%` : '--'}
+                  </span>
+                  {isActive && quote ? (
+                    <span className="text-xs text-slate-500">
+                      <span className="text-emerald-300">B {quote.bid ? quote.bid.toFixed(2) : '—'}</span>
+                      <span className="mx-1">•</span>
+                      <span className="text-rose-300">A {quote.ask ? quote.ask.toFixed(2) : '—'}</span>
+                    </span>
+                  ) : null}
                 </div>
               </div>
-            )}
-          </div>
-          <select 
-            className="rounded-lg border border-gray-700 bg-gray-800/50 backdrop-blur-sm px-6 py-3 text-lg font-mono font-medium text-white shadow-lg transition-all hover:border-blue-500 hover:bg-gray-800/70 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 focus:outline-none" 
-            value={symbol}
-            onChange={(e) => setSymbol(e.target.value)}
-            disabled={!hasSymbols}
-          >
-            {hasSymbols ? (
-              symbolOptions.map((s) => (
-                <option key={s.symbol} value={s.symbol} className="bg-gray-800 text-white">
-                  {s.symbol} — {s.name}
-                </option>
-              ))
-            ) : (
-              <option value="" className="bg-gray-800 text-white">No symbols available</option>
-            )}
-          </select>
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-24">
+                  <MiniCandleChart candles={isActive ? candles : []} />
+                </div>
+                <span className="text-slate-500 transition-transform group-hover:translate-x-1">›</span>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function MarketPulseBar({
+  lastPrice,
+  change,
+  changePct,
+  high,
+  low,
+  volume,
+  spread,
+}: {
+  lastPrice: number | null;
+  change: number | null;
+  changePct: number | null;
+  high: number | null;
+  low: number | null;
+  volume: number;
+  spread: number | null;
+}) {
+  const cards = [
+    { label: 'Last Price', value: lastPrice !== null ? `$${lastPrice.toFixed(2)}` : '—', accent: 'text-cyan-300' },
+    {
+      label: 'Change',
+      value:
+        change !== null && changePct !== null
+          ? `${change >= 0 ? '+' : ''}${change.toFixed(2)} (${changePct >= 0 ? '+' : ''}${changePct.toFixed(2)}%)`
+          : '—',
+      accent: change !== null && change >= 0 ? 'text-emerald-400' : 'text-red-400',
+    },
+    { label: 'Session High', value: high !== null ? `$${high.toFixed(2)}` : '—', accent: 'text-emerald-300' },
+    { label: 'Session Low', value: low !== null ? `$${low.toFixed(2)}` : '—', accent: 'text-rose-300' },
+    { label: 'Volume', value: volume ? volume.toLocaleString() : '—', accent: 'text-slate-200' },
+    { label: 'Spread', value: spread !== null ? `$${spread.toFixed(2)}` : '—', accent: 'text-slate-200' },
+  ];
+
+  return (
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
+      {cards.map((card) => (
+        <div
+          key={card.label}
+          className="rounded-2xl border border-slate-900 bg-slate-900/80 px-4 py-3 shadow-inner shadow-slate-950/40"
+        >
+          <div className="text-[10px] font-mono uppercase tracking-[0.4em] text-slate-500">{card.label}</div>
+          <div className={`mt-2 text-lg font-semibold ${card.accent}`}>{card.value}</div>
         </div>
-
-        {/* Empty-state if no symbols */}
-        {!hasSymbols ? (
-          <div className="mt-8 rounded-xl border border-gray-700/50 bg-gray-900/50 p-10 text-center">
-            <div className="mx-auto mb-4 h-16 w-16 rounded-full border-2 border-cyan-500/40 flex items-center justify-center">
-              <svg className="h-8 w-8 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-            </div>
-            <p className="text-gray-300 font-mono">No symbols available. Ask an admin to add symbols on the Admin page.</p>
-          </div>
-        ) : (
-        <div className="grid gap-6 lg:grid-cols-4">
-          {/* Left Column - Charts */}
-          <div className="space-y-6 lg:col-span-2">
-            <PriceChart trades={marketTrades?.trades || []} symbol={symbol} />
-            <OrderBookLadder 
-              orderbook={ob} 
-              quote={quote}
-              onPriceClick={handleLadderClick}
-              symbol={symbol}
-            />
-          </div>
-
-          {/* Center Column - Order Entry */}
-          <div className="space-y-6">
-            <OrderEntryPanel
-              symbol={symbol}
-              side={side}
-              setSide={setSide}
-              type={type}
-              setType={setType}
-              qty={qty}
-              setQty={setQty}
-              price={price}
-              setPrice={setPrice}
-              onPlaceOrder={handlePlaceOrder}
-              isLoading={placeOrderMutation.isPending}
-              show={showOrderForm}
-              onToggle={() => setShowOrderForm(!showOrderForm)}
-            />
-            <PositionsPanel positions={positions} />
-          </div>
-
-          {/* Right Column - Orders & Trades */}
-          <div className="space-y-6">
-            <OrdersPanel 
-              orders={allOrders?.orders || []}
-              onCancelOrder={handleCancelOrder}
-              cancelLoading={cancelOrderMutation.isPending}
-            />
-            <TradesPanel trades={trades?.trades || []} />
-          </div>
-        </div>
-        )}
-      </main>
+      ))}
     </div>
   );
 }
 
 // Price Chart Component
-function PriceChart({ trades, symbol }: { trades: TradeRecord[]; symbol: string }) {
+function PriceChart({
+  symbol,
+  data,
+  lastPrice,
+  priceChange,
+  priceChangePct,
+  timeframe,
+  mode,
+}: {
+  symbol: string;
+  data: { time: UTCTimestamp; value: number }[];
+  lastPrice: number | null;
+  priceChange: number | null;
+  priceChangePct: number | null;
+  timeframe: string;
+  mode: 'area' | 'line';
+}) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
-  const seriesRef = useRef<ISeriesApi<'Area'> | null>(null);
-
-  const sortedTrades = useMemo(() => (
-    [...trades]
-      .sort((a, b) => new Date(a.executed_at).getTime() - new Date(b.executed_at).getTime())
-  ), [trades]);
-
-  const lineData = useMemo(() => (
-    sortedTrades.map((trade) => ({
-      time: Math.floor(new Date(trade.executed_at).getTime() / 1000) as UTCTimestamp,
-      value: trade.price,
-    }))
-  ), [sortedTrades]);
-
-  const firstPrice = sortedTrades[0]?.price ?? null;
-  const lastPrice = sortedTrades[sortedTrades.length - 1]?.price ?? null;
-  const change = firstPrice !== null && lastPrice !== null ? lastPrice - firstPrice : null;
-  const changePct = change !== null && firstPrice ? (change / firstPrice) * 100 : null;
+  const seriesRef = useRef<ISeriesApi<'Area' | 'Line'> | null>(null);
 
   useEffect(() => {
-    if (!containerRef.current || chartRef.current) return;
+    if (!containerRef.current) return;
 
     const chart = createChart(containerRef.current, {
       autoSize: true,
@@ -330,8 +713,7 @@ function PriceChart({ trades, symbol }: { trades: TradeRecord[]; symbol: string 
       timeScale: {
         borderColor: 'rgba(6, 182, 212, 0.3)',
         rightOffset: 6,
-        tickMarkFormatter: (time: UTCTimestamp) =>
-          new Date(time * 1000).toLocaleTimeString(),
+        tickMarkFormatter: (time: UTCTimestamp) => new Date(time * 1000).toLocaleTimeString(),
       },
       crosshair: {
         mode: CrosshairMode.Magnet,
@@ -351,18 +733,7 @@ function PriceChart({ trades, symbol }: { trades: TradeRecord[]; symbol: string 
       },
     });
 
-    const series = chart.addSeries(AreaSeries, {
-      lineColor: '#0EA5E9',
-      topColor: 'rgba(14, 165, 233, 0.45)',
-      bottomColor: 'rgba(14, 165, 233, 0.05)',
-      lineWidth: 3,
-      priceLineVisible: true,
-      priceLineColor: '#38BDF8',
-      priceLineWidth: 1,
-    });
-
     chartRef.current = chart;
-    seriesRef.current = series;
 
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
@@ -375,6 +746,9 @@ function PriceChart({ trades, symbol }: { trades: TradeRecord[]; symbol: string 
 
     return () => {
       observer.disconnect();
+      if (seriesRef.current) {
+        chart.removeSeries(seriesRef.current);
+      }
       chartRef.current = null;
       seriesRef.current = null;
       chart.remove();
@@ -382,53 +756,82 @@ function PriceChart({ trades, symbol }: { trades: TradeRecord[]; symbol: string 
   }, []);
 
   useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+
+    if (seriesRef.current) {
+      chart.removeSeries(seriesRef.current);
+      seriesRef.current = null;
+    }
+
+    const baseOptions = {
+      lineWidth: 3,
+      priceLineVisible: true,
+      priceLineColor: '#38BDF8',
+      priceLineWidth: 1,
+    } as const;
+
+    const series = chart.addSeries(
+      mode === 'line' ? LineSeries : AreaSeries,
+      mode === 'line'
+        ? {
+            ...baseOptions,
+            color: '#38BDF8',
+          }
+        : {
+            ...baseOptions,
+            lineColor: '#0EA5E9',
+            topColor: 'rgba(14, 165, 233, 0.45)',
+            bottomColor: 'rgba(14, 165, 233, 0.05)',
+          },
+    ) as ISeriesApi<'Area' | 'Line'>;
+
+    seriesRef.current = series;
+  }, [mode]);
+
+  useEffect(() => {
     if (!seriesRef.current) return;
-    if (!lineData.length) {
+    if (!data.length) {
       seriesRef.current.setData([]);
       return;
     }
-
-    seriesRef.current.setData(lineData);
+    seriesRef.current.setData(data);
     chartRef.current?.timeScale().fitContent();
-  }, [lineData]);
+  }, [data, mode]);
 
-  const changeLabel = change !== null && changePct !== null
-    ? `${change >= 0 ? '+' : ''}${change.toFixed(2)} (${changePct >= 0 ? '+' : ''}${changePct.toFixed(2)}%)`
-    : '—';
+  const changeLabel =
+    priceChange !== null && priceChangePct !== null
+      ? `${priceChange >= 0 ? '+' : ''}${priceChange.toFixed(2)} (${priceChangePct >= 0 ? '+' : ''}${priceChangePct.toFixed(2)}%)`
+      : '—';
 
   return (
-    <div className="rounded-xl border border-gray-700/50 bg-gray-900/50 backdrop-blur-sm p-6 shadow-2xl">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-gray-700/30 pb-3">
+    <div className="rounded-2xl border border-slate-900 bg-slate-900/70 p-6 shadow-2xl">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-slate-900 pb-4">
         <div>
-          <h2 className="text-xl font-bold text-white font-mono tracking-wide">PRICE ACTION</h2>
-          <p className="text-xs uppercase tracking-[0.4em] text-cyan-400/70 font-semibold mt-1">{symbol}</p>
+          <h2 className="text-xl font-semibold text-slate-100">{symbol} • {timeframe.toUpperCase()} chart</h2>
+          <p className="mt-1 text-xs uppercase tracking-[0.35em] text-cyan-400/70">real-time market feed</p>
         </div>
         <div className="flex flex-wrap items-center gap-4 text-sm font-mono">
-          <div className="flex items-center space-x-2">
-            <div className="h-2 w-2 rounded-full bg-cyan-400 animate-pulse" />
-            <span className="text-cyan-300">LIVE</span>
+          <div className="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950 px-3 py-1">
+            <span className="text-xs text-slate-500 uppercase tracking-[0.3em]">Last</span>
+            <span className="text-lg font-semibold text-slate-100">{lastPrice !== null ? `$${lastPrice.toFixed(2)}` : '—'}</span>
           </div>
-          <div className="h-4 w-px bg-gray-700" />
-          <div className="text-gray-400">
-            {trades.length} trades
-          </div>
-          <div className={`rounded-full px-3 py-1 text-xs ${change !== null && change >= 0 ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/30' : 'bg-red-500/10 text-red-300 border border-red-500/30'}`}>
-            {lastPrice !== null ? `$${lastPrice.toFixed(2)}` : '—'}
-            <span className="ml-2 text-[11px] opacity-80">{changeLabel}</span>
+          <div className={`rounded-xl px-3 py-1 text-xs font-semibold ${priceChange !== null && priceChange >= 0 ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/30' : 'bg-red-500/10 text-red-300 border border-red-500/30'}`}>
+            {changeLabel}
           </div>
         </div>
       </div>
-      <div className="relative h-72">
+      <div className="relative h-80">
         <div ref={containerRef} className="absolute inset-0" />
-        {!lineData.length && (
+        {!data.length && (
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="text-center">
-              <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full border-2 border-dashed border-gray-700">
-                <svg className="h-7 w-7 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full border-2 border-dashed border-slate-700">
+                <svg className="h-7 w-7 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
                 </svg>
               </div>
-              <p className="text-gray-500 font-mono text-sm">Waiting for trades…</p>
+              <p className="text-sm font-mono text-slate-500">Waiting for trades…</p>
             </div>
           </div>
         )}
@@ -948,6 +1351,38 @@ function TradesPanel({ trades }: { trades: TradeRecord[] }) {
       </div>
     </div>
   );
+}
+
+function buildCandlesFromTrades(trades: TradeRecord[], bucketMs = 60_000): Candle[] {
+  if (!trades.length) return [];
+  const sorted = trades
+    .slice()
+    .sort((a, b) => new Date(a.executed_at).getTime() - new Date(b.executed_at).getTime());
+
+  const buckets = new Map<number, Candle>();
+
+  for (const trade of sorted) {
+    const ts = new Date(trade.executed_at).getTime();
+    const bucket = Math.floor(ts / bucketMs) * bucketMs;
+    const existing = buckets.get(bucket);
+    if (!existing) {
+      buckets.set(bucket, {
+        t: bucket,
+        o: trade.price,
+        h: trade.price,
+        l: trade.price,
+        c: trade.price,
+        v: trade.quantity,
+      });
+    } else {
+      existing.h = Math.max(existing.h, trade.price);
+      existing.l = Math.min(existing.l, trade.price);
+      existing.c = trade.price;
+      existing.v += trade.quantity;
+    }
+  }
+
+  return Array.from(buckets.values()).sort((a, b) => a.t - b.t);
 }
 
 // Positions Panel Component
