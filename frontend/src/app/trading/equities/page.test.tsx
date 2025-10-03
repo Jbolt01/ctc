@@ -5,8 +5,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import EquitiesTradingPage from './page';
 
+const routerMock = { push: jest.fn() };
 jest.mock('next/navigation', () => ({
-  useRouter: () => ({ push: jest.fn() }),
+  useRouter: () => routerMock,
+  usePathname: () => '/trading/equities',
 }));
 
 jest.mock('lightweight-charts', () => {
@@ -41,6 +43,12 @@ jest.mock('../../../lib/api', () => ({
 jest.mock('../../../hooks/useMarketData', () => ({
   useMarketData: jest.fn(),
 }));
+
+jest.mock('../../../components/NavBar', () => {
+  const Mock = () => <div data-testid="navbar" />
+  ;(Mock as any).displayName = 'MockNavBar'
+  return Mock
+})
 
 const { fetchSymbols, fetchPositions, fetchTrades, fetchMarketTrades, fetchAllOrders } = require('../../../lib/api');
 const { useMarketData } = require('../../../hooks/useMarketData');
@@ -124,11 +132,10 @@ describe('EquitiesTradingPage', () => {
     });
   });
 
-  it('renders watchlist, chart metrics, and market pulse cards', async () => {
+  it('renders chart metrics and market pulse cards', async () => {
     renderPage();
 
     await waitFor(() => expect(fetchSymbols).toHaveBeenCalled());
-    expect(await screen.findByTestId('watchlist-AAPL')).toBeInTheDocument();
     expect(screen.getByTestId('pulse-last-price')).toHaveTextContent('$201.40');
     expect(screen.getByTestId('pulse-change')).toHaveTextContent('+3.20');
     expect(screen.getByTestId('pulse-volume')).toHaveTextContent('75');
@@ -136,7 +143,7 @@ describe('EquitiesTradingPage', () => {
 
   it('updates timeframe and chart mode via toolbar', async () => {
     renderPage();
-    await screen.findByTestId('watchlist-AAPL');
+    await screen.findByText('TRADING TERMINAL');
 
     const button5m = screen.getByRole('button', { name: '5m' });
     await userEvent.click(button5m);
@@ -149,7 +156,7 @@ describe('EquitiesTradingPage', () => {
 
   it('allows collapsing and reopening the order ticket', async () => {
     renderPage();
-    await screen.findByTestId('watchlist-AAPL');
+    await screen.findByText('TRADING TERMINAL');
 
     const toggle = screen.getByLabelText('Collapse order ticket');
     await userEvent.click(toggle);
@@ -161,7 +168,7 @@ describe('EquitiesTradingPage', () => {
 
   it('surfaces team trades in the recent trades panel', async () => {
     renderPage();
-    await screen.findByTestId('watchlist-AAPL');
+    await screen.findByText('TRADING TERMINAL');
 
     expect(await screen.findByText(/BOUGHT/)).toBeInTheDocument();
     expect(screen.getByText(/50 AAPL/)).toBeInTheDocument();

@@ -940,7 +940,9 @@ class TeamAPIKeyCreateOut(BaseModel):
     api_key: str
 
 
-async def _require_team_owner(session: AsyncSession, team_id: _Any, api_key_hash: str) -> tuple[TeamModel, UserModel]:
+async def _require_team_owner(
+    session: AsyncSession, team_id: _Any, api_key_hash: str
+) -> tuple[TeamModel, UserModel]:
     team = await _get_team_by_id(session, team_id)
     user = await session.scalar(
         select(UserModel)
@@ -964,7 +966,9 @@ async def list_team_api_keys(api_key: RequireAPIKey, session: DbSession) -> list
     team, _user = await _require_team_owner(session, api_key["team_id"], api_key["key_hash"])
     rows = (
         await session.execute(
-            select(APIKeyModel).where(APIKeyModel.team_id == team.id).order_by(APIKeyModel.created_at.asc())
+            select(APIKeyModel)
+            .where(APIKeyModel.team_id == team.id)
+            .order_by(APIKeyModel.created_at.asc())
         )
     ).scalars().all()
     out: list[TeamAPIKeyOut] = []
@@ -987,8 +991,7 @@ async def create_team_api_key(
 ) -> TeamAPIKeyCreateOut:
     team, user = await _require_team_owner(session, api_key["team_id"], api_key["key_hash"])
     # Create a new API key for this team
-    import secrets
-    import hashlib
+    # imports at top of module
 
     api_key_value = secrets.token_urlsafe(32)
     api_key_hash = hashlib.sha256(api_key_value.encode()).hexdigest()
@@ -1008,7 +1011,9 @@ async def create_team_api_key(
 
 
 @api_router.delete("/teams/me/api-keys/{key_id}")
-async def revoke_team_api_key(key_id: str, api_key: RequireAPIKey, session: DbSession) -> dict[str, str]:
+async def revoke_team_api_key(
+    key_id: str, api_key: RequireAPIKey, session: DbSession
+) -> dict[str, str]:
     team, _user = await _require_team_owner(session, api_key["team_id"], api_key["key_hash"])
     # Parse id
     _kid: _Any

@@ -167,7 +167,7 @@ export default function TeamSettingsPage() {
 
             {createdKey && (
               <div className="mb-4 rounded border border-yellow-500/40 bg-yellow-900/20 p-3">
-                <div className="text-yellow-300 font-mono mb-1">Copy your new API key now. You won't be able to see it again.</div>
+                <div className="text-yellow-300 font-mono mb-1">Copy your new API key now. You won&apos;t be able to see it again.</div>
                 <div className="flex items-center gap-2">
                   <code className="px-2 py-1 bg-gray-800 text-cyan-300 rounded font-mono break-all">{createdKey.api_key}</code>
                   <button onClick={() => navigator.clipboard?.writeText(createdKey.api_key)} className="px-2 py-1 bg-gray-800 border border-gray-700 text-gray-300 rounded font-mono">Copy</button>
