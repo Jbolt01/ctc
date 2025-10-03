@@ -329,7 +329,8 @@ function PriceChart({ trades, symbol }: { trades: TradeRecord[]; symbol: string 
       timeScale: {
         borderColor: 'rgba(6, 182, 212, 0.3)',
         rightOffset: 6,
-        tickMarkFormatter: (time) => new Date((time as number) * 1000).toLocaleTimeString(),
+        tickMarkFormatter: (time: UTCTimestamp) =>
+          new Date(time * 1000).toLocaleTimeString(),
       },
       crosshair: {
         mode: CrosshairMode.Magnet,
