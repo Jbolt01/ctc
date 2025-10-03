@@ -17,6 +17,11 @@ jest.mock('../../lib/api', () => ({
 
 import * as api from '../../lib/api'
 import TeamSettingsPage from './page'
+jest.mock('../../components/NavBar', () => {
+  const Mock = () => <div data-testid="navbar" />
+  ;(Mock as any).displayName = 'MockNavBar'
+  return Mock
+})
 
 beforeEach(() => {
   jest.clearAllMocks()
