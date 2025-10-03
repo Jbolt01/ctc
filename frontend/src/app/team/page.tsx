@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import NavBar from '../../components/NavBar';
 import { teamGet, teamRotateCode, teamUpdateName, teamRemoveMember, listTeamApiKeys, createTeamApiKey, revokeTeamApiKey, type TeamAPIKey, type TeamAPIKeyCreateOut } from '../../lib/api';
 
 type Member = { id: string; email: string; name: string; role: string };
@@ -93,13 +94,24 @@ export default function TeamSettingsPage() {
     } catch {}
   };
 
-  if (loading) return <div className="p-6 text-gray-300 font-mono">Loading team…</div>;
-  if (error) return <div className="p-6 text-red-400 font-mono">{error}</div>;
+  if (loading) return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-black">
+      <NavBar />
+      <div className="p-6 text-gray-300 font-mono">Loading team…</div>
+    </div>
+  );
+  if (error) return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-black">
+      <NavBar />
+      <div className="p-6 text-red-400 font-mono">{error}</div>
+    </div>
+  );
   if (!data) return null;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-black p-6">
-      <div className="mx-auto max-w-3xl rounded-xl border border-gray-700/50 bg-gray-900/50 p-6">
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-black">
+      <NavBar />
+      <div className="mx-auto max-w-3xl rounded-xl border border-gray-700/50 bg-gray-900/50 p-6 mt-6">
         <h1 className="text-2xl font-bold text-white mb-2">Team Settings</h1>
         <p className="text-gray-400 font-mono mb-6">Manage your team and invite members</p>
 
