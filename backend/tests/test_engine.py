@@ -127,12 +127,19 @@ def test_manager_load_clears_and_prevents_duplicate_trade() -> None:
         def __init__(self, **kwargs):
             self.__dict__.update(kwargs)
 
+    class FakeScalarResult:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def all(self):  # mimic SQLAlchemy ScalarResult
+            return self._rows
+
     class FakeResult:
         def __init__(self, rows):
             self._rows = rows
 
-        def all(self):  # mimic SQLAlchemy Result
-            return self._rows
+        def scalars(self):
+            return FakeScalarResult(self._rows)
 
     class FakeSession:
         def __init__(self, rows):
@@ -143,7 +150,7 @@ def test_manager_load_clears_and_prevents_duplicate_trade() -> None:
 
     symbol = "XYZ"
     manager = ExchangeManager()
-    engine = manager._get_engine(symbol)
+    engine = manager._get_or_create_state(symbol).engine
 
     # Pre-existing in-memory ask from User A at 101 x 100
     engine.add_order(
@@ -172,7 +179,7 @@ def test_manager_load_clears_and_prevents_duplicate_trade() -> None:
     ])
 
     async def run_scenario() -> None:
-        await manager.load_open_orders(fake)
+        await manager.load_open_orders(fake, symbol_code=symbol)
 
         # First buy market by User B for 100 hits A1 at 101
         trades1, _ = engine.add_order(
@@ -182,7 +189,7 @@ def test_manager_load_clears_and_prevents_duplicate_trade() -> None:
 
         # After the trade, DB no longer has A1 open
         fake.rows = []
-        await manager.load_open_orders(fake)
+        await manager.load_open_orders(fake, symbol_code=symbol)
 
         # Second identical buy should not trade again (book rebuilt from DB)
         trades2, _ = engine.add_order(

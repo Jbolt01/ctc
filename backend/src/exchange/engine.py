@@ -32,33 +32,55 @@ class MatchingEngine:
         self.bids: list[SimpleOrder] = []
         self.asks: list[SimpleOrder] = []
 
-    def _sort_books(self) -> None:
-        # Bids: highest price first; Asks: lowest price first
-        self.bids.sort(key=lambda o: (-(o.price or 0.0)))
-        self.asks.sort(key=lambda o: (o.price or 0.0))
-
     def reset(self) -> None:
-        """Clear all in-memory book state.
-
-        This is used by the manager to rebuild the book from the database to
-        prevent duplicate or stale orders from persisting across requests.
-        """
+        """Clear all in-memory book state."""
         self.bids.clear()
         self.asks.clear()
+
+    def _insert_bid(self, order: SimpleOrder) -> None:
+        if order.price is None:
+            return
+        order_price = float(order.price)
+        idx = 0
+        while idx < len(self.bids):
+            existing_price = float(self.bids[idx].price or 0.0)
+            if existing_price >= order_price:
+                idx += 1
+            else:
+                break
+        self.bids.insert(idx, order)
+
+    def _insert_ask(self, order: SimpleOrder) -> None:
+        if order.price is None:
+            return
+        order_price = float(order.price)
+        idx = 0
+        while idx < len(self.asks):
+            existing_price = float(self.asks[idx].price or 0.0)
+            if existing_price <= order_price:
+                idx += 1
+            else:
+                break
+        self.asks.insert(idx, order)
+
+    def add_resting_order(self, order: SimpleOrder) -> None:
+        """Insert a pre-existing limit order without attempting to match."""
+        if order.side == "buy":
+            self._insert_bid(order)
+        else:
+            self._insert_ask(order)
 
     def add_order(self, order: SimpleOrder) -> tuple[list[SimpleTrade], list[SimpleCancel]]:
         trades: list[SimpleTrade] = []
         cancels: list[SimpleCancel] = []
         if order.side == "buy":
             trades, cancels = self._match_buy(order)
-            # Do not rest market orders (price None). Cancel remainder implicitly.
             if order.quantity > 0 and order.price is not None:
-                self.bids.append(order)
+                self._insert_bid(order)
         else:
             trades, cancels = self._match_sell(order)
             if order.quantity > 0 and order.price is not None:
-                self.asks.append(order)
-        self._sort_books()
+                self._insert_ask(order)
         return trades, cancels
 
     def get_orderbook_levels(
@@ -78,19 +100,26 @@ class MatchingEngine:
         asks_sorted = sorted(ask_levels.items(), key=lambda x: x[0])[:depth]
         return bids_sorted, asks_sorted
 
+    def remove_order(self, order_id: str) -> bool:
+        for book in (self.bids, self.asks):
+            for idx, existing in enumerate(book):
+                if existing.order_id == order_id:
+                    book.pop(idx)
+                    return True
+        return False
+
     def _match_buy(self, buy: SimpleOrder) -> tuple[list[SimpleTrade], list[SimpleCancel]]:
         trades: list[SimpleTrade] = []
         cancels: list[SimpleCancel] = []
-        # naive loop over asks
         i = 0
         while i < len(self.asks) and buy.quantity > 0:
             ask = self.asks[i]
             if ask.price is None:
                 i += 1
                 continue
-            # Price-time priority simplified: price only
+            if buy.price is not None and buy.price < ask.price:
+                break
             if buy.price is None or buy.price >= ask.price:
-                # Self-trade prevention: cancel resting self-quantity first
                 if ask.team_id == buy.team_id:
                     cancel_qty = min(buy.quantity, ask.quantity)
                     if cancel_qty > 0:
@@ -99,8 +128,6 @@ class MatchingEngine:
                         if ask.quantity == 0:
                             self.asks.pop(i)
                             continue
-                    # If ask still has quantity after canceling up to buy's remaining,
-                    # continue walking (do not reduce buy.quantity on self-cancel)
                 else:
                     qty = min(buy.quantity, ask.quantity)
                     trades.append(
@@ -108,7 +135,7 @@ class MatchingEngine:
                             buyer_order_id=buy.order_id,
                             seller_order_id=ask.order_id,
                             quantity=qty,
-                            price=ask.price,
+                            price=float(ask.price),
                         )
                     )
                     buy.quantity -= qty
@@ -128,8 +155,9 @@ class MatchingEngine:
             if bid.price is None:
                 i += 1
                 continue
+            if sell.price is not None and sell.price > bid.price:
+                break
             if sell.price is None or sell.price <= bid.price:
-                # Self-trade prevention: cancel resting self-quantity first
                 if bid.team_id == sell.team_id:
                     cancel_qty = min(sell.quantity, bid.quantity)
                     if cancel_qty > 0:
@@ -138,7 +166,6 @@ class MatchingEngine:
                         if bid.quantity == 0:
                             self.bids.pop(i)
                             continue
-                    # Do not reduce incoming sell quantity for self-cancel
                 else:
                     qty = min(sell.quantity, bid.quantity)
                     trades.append(
@@ -146,7 +173,7 @@ class MatchingEngine:
                             buyer_order_id=bid.order_id,
                             seller_order_id=sell.order_id,
                             quantity=qty,
-                            price=bid.price,
+                            price=float(bid.price),
                         )
                     )
                     sell.quantity -= qty

@@ -150,15 +150,12 @@ async def place_order(
         quantity=payload.quantity,
         price=payload.price,
     )
-    # Attempt to match the new order with existing orders and persist trades/positions
-    await _exchange.load_open_orders(session)
     trades = await _exchange.place_and_match(session, db_order=db_order, symbol_code=payload.symbol)
     await session.commit()
 
-    # Notify WebSocket clients of order book changes
-    await websocket_manager.notify_order_book_update(payload.symbol, session)
+    bids, asks = _exchange.get_orderbook_levels(payload.symbol)
+    await websocket_manager.notify_order_book_update(payload.symbol, bids, asks)
 
-    # Notify WebSocket clients of any trades that occurred
     for trade in trades:
         await websocket_manager.notify_trade(
             payload.symbol,
@@ -204,11 +201,16 @@ async def cancel_order(order_id: str, api_key: RequireAPIKey, session: DbSession
     if not row:
         raise HTTPException(status_code=404, detail="Order not found")
 
+    order.status = "cancelled"
+    order.updated_at = datetime.utcnow()
+
     await session.commit()
 
-    # Notify WebSocket clients of order book changes
     if symbol_name:
-        await websocket_manager.notify_order_book_update(symbol_name, session)
+        await _exchange.ensure_symbol_loaded(session, symbol_name)
+        _exchange.remove_from_book(symbol_name, str(order.id))
+        bids, asks = _exchange.get_orderbook_levels(symbol_name)
+        await websocket_manager.notify_order_book_update(symbol_name, bids, asks)
 
     return {"order_id": order_id, "status": "cancelled"}
 
@@ -936,7 +938,7 @@ async def get_orderbook(
 ) -> OrderBookResponse:
     now = datetime.now(tz=UTC)
     # Lazy load book from DB if empty
-    await _exchange.load_open_orders(session)
+    await _exchange.ensure_symbol_loaded(session, symbol)
     bids, asks = _exchange.get_orderbook_levels(symbol, depth=depth)
     bid_levels = [OrderBookLevel(price=p, quantity=q) for p, q in bids]
     ask_levels = [OrderBookLevel(price=p, quantity=q) for p, q in asks]
@@ -1528,30 +1530,39 @@ async def market_data_ws(ws: WebSocket) -> None:
                 async for session in get_db_session():
                     try:
                         # Send current order book if requested
-                        if "orderbook" in msg.channels:
-                            order_book = await websocket_manager.get_order_book(symbol, session)
-                            bids = order_book["bids"]
-                            asks = order_book["asks"]
+                        bids_payload: list[dict[str, float | int]] = []
+                        asks_payload: list[dict[str, float | int]] = []
+                        if "orderbook" in msg.channels or "quotes" in msg.channels:
+                            await _exchange.ensure_symbol_loaded(session, symbol)
+                            bids_levels, asks_levels = _exchange.get_orderbook_levels(symbol)
+                            bids_payload = [
+                                {"price": price, "quantity": quantity}
+                                for price, quantity in bids_levels
+                            ]
+                            asks_payload = [
+                                {"price": price, "quantity": quantity}
+                                for price, quantity in asks_levels
+                            ]
 
+                        if "orderbook" in msg.channels:
                             await ws.send_json({
                                 "type": "orderbook",
                                 "symbol": symbol,
-                                "bids": bids,
-                                "asks": asks,
+                                "bids": bids_payload,
+                                "asks": asks_payload,
                                 "timestamp": datetime.now(tz=UTC).isoformat()
                             })
 
-                            # Send current quote if requested
-                            if "quotes" in msg.channels and (bids or asks):
-                                await ws.send_json({
-                                    "type": "quote",
-                                    "symbol": symbol,
-                                    "bid": bids[0]["price"] if bids else 0,
-                                    "ask": asks[0]["price"] if asks else 0,
-                                    "bid_size": bids[0]["quantity"] if bids else 0,
-                                    "ask_size": asks[0]["quantity"] if asks else 0,
-                                    "timestamp": datetime.now(tz=UTC).isoformat()
-                                })
+                        if "quotes" in msg.channels and (bids_payload or asks_payload):
+                            await ws.send_json({
+                                "type": "quote",
+                                "symbol": symbol,
+                                "bid": bids_payload[0]["price"] if bids_payload else 0,
+                                "ask": asks_payload[0]["price"] if asks_payload else 0,
+                                "bid_size": bids_payload[0]["quantity"] if bids_payload else 0,
+                                "ask_size": asks_payload[0]["quantity"] if asks_payload else 0,
+                                "timestamp": datetime.now(tz=UTC).isoformat()
+                            })
 
                         # Send recent trades if requested
                         if "trades" in msg.channels:
