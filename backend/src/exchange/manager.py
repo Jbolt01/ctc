@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Iterable
 
 from sqlalchemy import inspect, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,7 +12,7 @@ from src.db.models import Order as OrderModel
 from src.db.models import Position as PositionModel
 from src.db.models import Symbol as SymbolModel
 from src.db.models import Trade as TradeModel
-from src.exchange.engine import MatchingEngine, SimpleCancel, SimpleOrder, SimpleTrade
+from src.exchange.engine import MatchingEngine, SimpleOrder
 
 
 @dataclass
@@ -298,6 +298,7 @@ class ExchangeManager:
         cache: dict[tuple[uuid.UUID, uuid.UUID], PositionModel] | None = None,
     ) -> None:
         key = (team_id, symbol_id)
+        pos: PositionModel | None
         if cache is not None and key in cache:
             pos = cache[key]
         else:
@@ -314,6 +315,8 @@ class ExchangeManager:
                 await session.flush()
             if cache is not None:
                 cache[key] = pos
+
+        assert pos is not None
 
         qty_curr = pos.quantity
         avg = float(pos.average_price) if pos.average_price is not None else None

@@ -71,8 +71,14 @@ class WebSocketManager:
     ) -> None:
         """Notify subscribers of an updated order book snapshot."""
         timestamp = datetime.now(tz=UTC).isoformat()
-        bids_payload = [{"price": float(price), "quantity": int(quantity)} for price, quantity in bids]
-        asks_payload = [{"price": float(price), "quantity": int(quantity)} for price, quantity in asks]
+        bids_payload = [
+            {"price": float(price), "quantity": int(quantity)}
+            for price, quantity in bids
+        ]
+        asks_payload = [
+            {"price": float(price), "quantity": int(quantity)}
+            for price, quantity in asks
+        ]
 
         await self.broadcast_to_symbol(
             symbol,
