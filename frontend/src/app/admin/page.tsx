@@ -109,8 +109,8 @@ export default function AdminPage() {
               ['users', 'Users'],
               ['symbols', 'Symbols'],
               ['teams', 'Teams'],
-              ['hours', 'Trading Hours'],
-              ['competitions', 'Competitions'],
+              // ['hours', 'Trading Hours'],
+              // ['competitions', 'Competitions'],
               ['marketdata', 'Market Data'],
             ] as Array<[TabKey, string]>
           ).map(([k, label]) => (
@@ -133,8 +133,8 @@ export default function AdminPage() {
           {active === 'users' && <UsersPanel />}
           {active === 'symbols' && <SymbolsPanel />}
           {active === 'teams' && <TeamsPanel />}
-          {active === 'hours' && <HoursPanel />}
-          {active === 'competitions' && <CompetitionsPanel />}
+          {/* {active === 'hours' && <HoursPanel />} */}
+          {/* {active === 'competitions' && <CompetitionsPanel />} */}
           {active === 'marketdata' && <MarketDataPanel />}
         </div>
       </div>

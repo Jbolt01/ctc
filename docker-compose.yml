@@ -8,7 +8,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U trading_user -d trading_competition"]
+      test: [ "CMD-SHELL", "pg_isready -U trading_user -d trading_competition" ]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -20,7 +20,7 @@ services:
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -36,7 +36,9 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://trading_user:${DB_PASSWORD:-devpassword}@postgres/trading_competition
       REDIS_URL: redis://redis:6379
-      ALLOW_ANY_API_KEY: false
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-cornellquantfund@gmail.com,ez255@cornell.edu}
+      SEED_ON_STARTUP: ${SEED_ON_STARTUP:-false}
+      ALLOW_ANY_API_KEY: ${ALLOW_ANY_API_KEY:-false}
     volumes:
       - ./backend/src:/app/src
     restart: unless-stopped

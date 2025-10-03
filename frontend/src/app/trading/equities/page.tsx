@@ -459,22 +459,25 @@ function OrderBookLadder({
     return { bids, asks, spread };
   }, [orderbook]);
 
+  const bestBid = ladderData.bids[0]?.price;
+  const bestAsk = ladderData.asks[0]?.price;
+
     return (
     <div className="rounded-xl border border-gray-700/50 bg-gray-900/50 backdrop-blur-sm shadow-2xl overflow-hidden">
       <div className="bg-gradient-to-r from-gray-800/80 to-gray-900/80 p-4 border-b border-gray-700/50">
         <h2 className="text-xl font-bold text-white font-mono tracking-wide">ORDER BOOK</h2>
-        {quote && (
+        {(bestBid || bestAsk) && (
           <div className="mt-3 flex items-center space-x-6 text-sm">
             <div className="flex items-center space-x-2">
               <div className="h-2 w-2 rounded-full bg-emerald-400"></div>
               <span className="text-emerald-400 font-mono font-medium">
-                BID: ${quote.bid?.toFixed(2) || 'N/A'}
+                BID: ${bestBid ? bestBid.toFixed(2) : 'N/A'}
               </span>
             </div>
             <div className="flex items-center space-x-2">
               <div className="h-2 w-2 rounded-full bg-red-400"></div>
               <span className="text-red-400 font-mono font-medium">
-                ASK: ${quote.ask?.toFixed(2) || 'N/A'}
+                ASK: ${bestAsk ? bestAsk.toFixed(2) : 'N/A'}
               </span>
             </div>
             {ladderData.spread && (
