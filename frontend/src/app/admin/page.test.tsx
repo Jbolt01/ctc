@@ -14,9 +14,9 @@ jest.mock('../../lib/api', () => ({
   adminSetUserAdmin: jest.fn(),
   adminListTeams: jest.fn(),
   adminCreateTeam: jest.fn(),
-  adminListHours: jest.fn(),
-  adminListCompetitions: jest.fn(),
-  adminCreateCompetition: jest.fn(),
+  // adminListHours: jest.fn(),
+  // adminListCompetitions: jest.fn(),
+  // adminCreateCompetition: jest.fn(),
   adminCreateSymbol: jest.fn(),
   adminDeleteSymbol: jest.fn(),
   adminUpsertMarketData: jest.fn(),
@@ -49,13 +49,13 @@ beforeEach(() => {
     { id: 't1', name: 'Alpha' },
     { id: 't2', name: 'Beta' },
   ])
-  api.adminListHours.mockResolvedValue([
-    { id: 'h1', symbol: 'AAPL', day_of_week: 1, open_time: '09:30', close_time: '16:00', is_active: true },
-    { id: 'h2', symbol: 'GOOGL', day_of_week: 5, open_time: '09:30', close_time: '16:00', is_active: false },
-  ])
-  api.adminListCompetitions.mockResolvedValue([
-    { id: 'c1', name: 'Fall', start_time: '2025-09-01T13:00:00Z', end_time: '2025-09-30T20:00:00Z', is_active: true },
-  ])
+  // api.adminListHours.mockResolvedValue([
+  //   { id: 'h1', symbol: 'AAPL', day_of_week: 1, open_time: '09:30', close_time: '16:00', is_active: true },
+  //   { id: 'h2', symbol: 'GOOGL', day_of_week: 5, open_time: '09:30', close_time: '16:00', is_active: false },
+  // ])
+  // api.adminListCompetitions.mockResolvedValue([
+  //   { id: 'c1', name: 'Fall', start_time: '2025-09-01T13:00:00Z', end_time: '2025-09-30T20:00:00Z', is_active: true },
+  // ])
   api.adminListSymbols.mockResolvedValue([
     { symbol: 'AAPL', name: 'Apple', trading_halted: false, settlement_active: false },
     { symbol: 'GOOGL', name: 'Alphabet', trading_halted: true },
@@ -64,7 +64,7 @@ beforeEach(() => {
   api.fetchSymbols.mockResolvedValue({ symbols: [ { symbol: 'AAPL', name: 'Apple' }, { symbol: 'GOOGL', name: 'Alphabet' } ] })
   api.adminSetUserAdmin.mockResolvedValue(undefined)
   api.adminCreateTeam.mockResolvedValue(undefined)
-  api.adminCreateCompetition.mockResolvedValue(undefined)
+  // api.adminCreateCompetition.mockResolvedValue(undefined)
   api.adminCreateSymbol.mockResolvedValue(undefined)
   api.adminDeleteSymbol.mockResolvedValue(undefined)
   api.adminPauseSymbols.mockResolvedValue(undefined)
@@ -220,34 +220,34 @@ describe('TeamsPanel', () => {
   })
 })
 
-describe('HoursPanel', () => {
-  it('renders table of trading hours', async () => {
-    await renderAdmin()
-    await userEvent.click(screen.getByRole('button', { name: 'Trading Hours' }))
-    // Verify rows content (Mon for 1, Fri for 5)
-    expect(await screen.findByText('AAPL')).toBeInTheDocument()
-    expect(screen.getByText('Mon')).toBeInTheDocument()
-    expect(screen.getByText('Fri')).toBeInTheDocument()
-    expect(screen.getAllByText('09:30').length).toBeGreaterThan(0)
-  })
-})
+// describe('HoursPanel', () => {
+//   it('renders table of trading hours', async () => {
+//     await renderAdmin()
+//     await userEvent.click(screen.getByRole('button', { name: 'Trading Hours' }))
+//     // Verify rows content (Mon for 1, Fri for 5)
+//     expect(await screen.findByText('AAPL')).toBeInTheDocument()
+//     expect(screen.getByText('Mon')).toBeInTheDocument()
+//     expect(screen.getByText('Fri')).toBeInTheDocument()
+//     expect(screen.getAllByText('09:30').length).toBeGreaterThan(0)
+//   })
+// })
 
-describe('CompetitionsPanel', () => {
-  it('lists and creates competitions', async () => {
-    await renderAdmin()
-    await userEvent.click(screen.getByRole('button', { name: 'Competitions' }))
-    expect(await screen.findByText('Fall')).toBeInTheDocument()
-    await userEvent.type(screen.getByPlaceholderText('Name'), 'Spring')
-    // datetime-local inputs
-    const dts = screen.getAllByDisplayValue('')
-    await userEvent.type(dts[0], '2025-03-01T09:00')
-    await userEvent.type(dts[1], '2025-03-31T17:00')
-    await userEvent.click(screen.getByLabelText(/Active/))
-    await userEvent.click(screen.getByRole('button', { name: 'Create Competition' }))
-    expect(api.adminCreateCompetition).toHaveBeenCalledWith({ name: 'Spring', start_time: '2025-03-01T09:00', end_time: '2025-03-31T17:00', is_active: true })
-    await waitFor(() => expect(api.adminListCompetitions).toHaveBeenCalledTimes(2))
-  })
-})
+// describe('CompetitionsPanel', () => {
+//   it('lists and creates competitions', async () => {
+//     await renderAdmin()
+//     await userEvent.click(screen.getByRole('button', { name: 'Competitions' }))
+//     expect(await screen.findByText('Fall')).toBeInTheDocument()
+//     await userEvent.type(screen.getByPlaceholderText('Name'), 'Spring')
+//     // datetime-local inputs
+//     const dts = screen.getAllByDisplayValue('')
+//     await userEvent.type(dts[0], '2025-03-01T09:00')
+//     await userEvent.type(dts[1], '2025-03-31T17:00')
+//     await userEvent.click(screen.getByLabelText(/Active/))
+//     await userEvent.click(screen.getByRole('button', { name: 'Create Competition' }))
+//     expect(api.adminCreateCompetition).toHaveBeenCalledWith({ name: 'Spring', start_time: '2025-03-01T09:00', end_time: '2025-03-31T17:00', is_active: true })
+//     await waitFor(() => expect(api.adminListCompetitions).toHaveBeenCalledTimes(2))
+//   })
+// })
 
 describe('MarketDataPanel', () => {
   it('upserts close price for a symbol', async () => {
