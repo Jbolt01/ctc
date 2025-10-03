@@ -1,10 +1,14 @@
 name: CI
 
-on: 
+on:
   push:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   REGISTRY: ghcr.io
@@ -12,40 +16,119 @@ env:
 
 jobs:
   backend:
+    name: Backend (${{ matrix.task }} • py${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+        task: [lint, typecheck, test]
+        exclude:
+          - python-version: "3.13"
+            task: lint
+          - python-version: "3.13"
+            task: typecheck
     defaults:
       run:
         working-directory: backend
     steps:
       - uses: actions/checkout@v4
-      - name: Install uv
-        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Cache uv downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/uv
+          key: uv-${{ runner.os }}-${{ hashFiles('backend/uv.lock') }}
+          restore-keys: |
+            uv-${{ runner.os }}-
+
+      - name: Cache backend virtualenv
+        uses: actions/cache@v4
+        with:
+          path: backend/.venv
+          key: backend-venv-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('backend/uv.lock') }}
+          restore-keys: |
+            backend-venv-${{ runner.os }}-${{ matrix.python-version }}-
+            backend-venv-${{ runner.os }}-
+
       - name: Install dependencies
-        run: ~/.local/bin/uv sync
-      - name: Run ruff
-        run: ~/.local/bin/uv run ruff check .
-      - name: Run mypy
-        run: ~/.local/bin/uv run mypy src
-      - name: Run tests
-        run: ~/.local/bin/uv run pytest
+        run: uv sync --frozen
+
+      - name: Run Ruff
+        if: matrix.task == 'lint'
+        run: uv run ruff check . --output-format=github
+
+      - name: Run Mypy
+        if: matrix.task == 'typecheck'
+        run: uv run python -m mypy src
+
+      - name: Run Pytest
+        if: matrix.task == 'test'
+        run: uv run pytest --maxfail=1 --cov=src --cov-report=xml --cov-report=term-missing
+
+      - name: Upload coverage report
+        if: matrix.task == 'test'
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage-${{ matrix.python-version }}
+          path: backend/coverage.xml
+          if-no-files-found: ignore
 
   frontend:
+    name: Frontend (${{ matrix.task }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        task: [lint, test, build]
     defaults:
       run:
         working-directory: frontend
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
       - uses: pnpm/action-setup@v4
         with:
-          version: latest
+          version: 10.14.0
+          run_install: false
+          cache: true
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile=false
+        run: pnpm install --frozen-lockfile
+
+      - name: Cache Next.js build assets
+        if: matrix.task == 'build'
+        uses: actions/cache@v4
+        with:
+          path: frontend/.next/cache
+          key: next-cache-${{ runner.os }}-${{ hashFiles('frontend/pnpm-lock.yaml') }}
+          restore-keys: |
+            next-cache-${{ runner.os }}-
+
       - name: Run ESLint
+        if: matrix.task == 'lint'
         run: pnpm lint
+
       - name: Run tests
+        if: matrix.task == 'test'
         run: pnpm test -- --ci
+
       - name: Build
+        if: matrix.task == 'build'
         run: pnpm build
 
   build-and-push:
@@ -55,9 +138,23 @@ jobs:
     permissions:
       contents: read
       packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: backend
+            context: ./backend
+            cache-scope: backend
+          - image: frontend
+            context: ./frontend
+            cache-scope: frontend
+            requires-frontend-secrets: true
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Compute lowercase image name
+        run: echo "IMAGE_NAME_LC=${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -69,53 +166,37 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Compute lowercase image name
-        id: vars
-        run: echo "image_name_lc=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - name: Prepare frontend build args
+        if: matrix.requires-frontend-secrets == true
+        run: |
+          {
+            echo "BUILD_ARGS<<'EOF'"
+            echo "NEXT_PUBLIC_GOOGLE_CLIENT_ID=${{ secrets.NEXT_PUBLIC_GOOGLE_CLIENT_ID }}"
+            echo "NEXT_PUBLIC_API_URL=${{ secrets.NEXT_PUBLIC_API_URL }}"
+            echo "NEXT_PUBLIC_WS_URL=${{ secrets.NEXT_PUBLIC_WS_URL }}"
+            echo "EOF"
+          } >> "$GITHUB_ENV"
 
-      - name: Extract metadata for backend
-        id: meta-backend
+      - name: Extract metadata
+        id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ steps.vars.outputs.image_name_lc }}/backend
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LC }}/${{ matrix.image }}
           tags: |
             type=ref,event=branch
             type=sha,prefix={{branch}}-
             type=raw,value=latest,enable={{is_default_branch}}
 
-      - name: Build and push backend image
+      - name: Build and push ${{ matrix.image }} image
         uses: docker/build-push-action@v5
         with:
-          context: ./backend
+          context: ${{ matrix.context }}
           push: true
-          tags: ${{ steps.meta-backend.outputs.tags }}
-          labels: ${{ steps.meta-backend.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Extract metadata for frontend
-        id: meta-frontend
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ steps.vars.outputs.image_name_lc }}/frontend
-          tags: |
-            type=ref,event=branch
-            type=sha,prefix={{branch}}-
-            type=raw,value=latest,enable={{is_default_branch}}
-
-      - name: Build and push frontend image
-        uses: docker/build-push-action@v5
-        with:
-          context: ./frontend
-          push: true
-          build-args: |
-            NEXT_PUBLIC_GOOGLE_CLIENT_ID=${{ secrets.NEXT_PUBLIC_GOOGLE_CLIENT_ID }}
-            NEXT_PUBLIC_API_URL=${{ secrets.NEXT_PUBLIC_API_URL }}
-            NEXT_PUBLIC_WS_URL=${{ secrets.NEXT_PUBLIC_WS_URL }}
-          tags: ${{ steps.meta-frontend.outputs.tags }}
-          labels: ${{ steps.meta-frontend.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: ${{ env.BUILD_ARGS || '' }}
+          cache-from: type=gha,scope=${{ matrix.cache-scope }}
+          cache-to: type=gha,scope=${{ matrix.cache-scope }},mode=max
 
   deploy-remote:
     name: Deploy to Remote Server
