@@ -14,6 +14,7 @@ import {
   type ISeriesApi,
   type UTCTimestamp,
 } from 'lightweight-charts';
+import { PanelGroup, Panel, PanelResizeHandle } from 'react-resizable-panels';
 import { 
   fetchSymbols, 
   fetchPositions, 
@@ -230,10 +231,13 @@ export default function EquitiesTradingPage() {
 
   return (
     <div className="flex min-h-screen bg-slate-950 text-slate-100">
-      <SideDock onOpenDocs={() => window.open('https://tradingview.com', '_blank')} onToggleTheme={() => setChartMode((prev) => (prev === 'area' ? 'line' : 'area'))} />
-      <div className="flex-1 flex flex-col">
+      <SideDock
+        onOpenDocs={() => window.open('https://tradingview.com', '_blank')}
+        onToggleTheme={() => setChartMode((prev) => (prev === 'area' ? 'line' : 'area'))}
+      />
+      <div className="flex flex-1 flex-col">
         <NavBar />
-        <main className="flex-1 overflow-y-auto px-6 py-6">
+        <main className="flex-1 overflow-hidden px-6 py-6">
           <TopToolbar
             symbol={symbol}
             symbolOptions={symbolOptions}
@@ -262,72 +266,106 @@ export default function EquitiesTradingPage() {
               <p className="text-base text-slate-300 font-mono">No symbols available. Ask an admin to add symbols on the Admin page.</p>
             </div>
           ) : (
-            <>
-              <div className="grid gap-6 xl:grid-cols-[280px_minmax(0,1fr)_360px] 2xl:grid-cols-[320px_minmax(0,1fr)_380px]">
-                <WatchlistPanel
-                  symbols={symbolOptions}
-                  activeSymbol={symbol}
-                  onSelectSymbol={setSymbol}
-                  candles={watchlistCandles}
-                  quote={quote}
-                  lastPrice={lastTradePrice}
-                  priceChangePct={priceChangePct}
-                  sessionVolume={sessionVolume}
-                  timeframe={timeframe}
-                />
-
-                <div className="space-y-6">
-                  <PriceChart
-                    symbol={symbol}
-                    data={priceSeries}
+            <PanelGroup direction="horizontal" className="mt-4 h-[calc(100vh-220px)] gap-4">
+              <Panel defaultSize={18} minSize={12} className="flex">
+                <div className="h-full w-full overflow-hidden">
+                  <WatchlistPanel
+                    symbols={symbolOptions}
+                    activeSymbol={symbol}
+                    onSelectSymbol={setSymbol}
+                    candles={watchlistCandles}
+                    quote={quote}
                     lastPrice={lastTradePrice}
-                    priceChange={priceChange}
                     priceChangePct={priceChangePct}
+                    sessionVolume={sessionVolume}
                     timeframe={timeframe}
-                    mode={chartMode}
-                  />
-                  <MarketPulseBar
-                    lastPrice={lastTradePrice}
-                    change={priceChange}
-                    changePct={priceChangePct}
-                    high={sessionHigh}
-                    low={sessionLow}
-                    volume={sessionVolume}
-                    spread={quotedSpread}
                   />
                 </div>
-
-                <OrderEntryPanel
-                  symbol={symbol}
-                  side={side}
-                  setSide={setSide}
-                  type={type}
-                  setType={setType}
-                  qty={qty}
-                  setQty={setQty}
-                  price={price}
-                  setPrice={setPrice}
-                  onPlaceOrder={handlePlaceOrder}
-                  isLoading={placeOrderMutation.isPending}
-                  show={showOrderForm}
-                  onToggle={() => setShowOrderForm(!showOrderForm)}
-                />
-              </div>
-
-              <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px] 2xl:grid-cols-[minmax(0,1fr)_380px]">
-                <OrderBookLadder orderbook={ob} quote={quote} onPriceClick={handleLadderClick} symbol={symbol} />
-                <TradesPanel trades={trades?.trades || []} />
-              </div>
-
-              <div className="mt-6 grid gap-6 xl:grid-cols-2">
-                <PositionsPanel positions={positions} />
-                <OrdersPanel
-                  orders={allOrders?.orders || []}
-                  onCancelOrder={handleCancelOrder}
-                  cancelLoading={cancelOrderMutation.isPending}
-                />
-              </div>
-            </>
+              </Panel>
+              <ResizeHandle />
+              <Panel defaultSize={50} minSize={36} className="flex">
+                <PanelGroup direction="vertical" className="h-full w-full gap-4">
+                  <Panel defaultSize={62} minSize={35} className="flex">
+                    <PriceChart
+                      symbol={symbol}
+                      data={priceSeries}
+                      lastPrice={lastTradePrice}
+                      priceChange={priceChange}
+                      priceChangePct={priceChangePct}
+                      timeframe={timeframe}
+                      mode={chartMode}
+                    />
+                  </Panel>
+                  <ResizeHandle vertical={false} />
+                  <Panel minSize={28} className="flex">
+                    <PanelGroup direction="horizontal" className="h-full w-full gap-4">
+                      <Panel minSize={30} className="flex">
+                        <OrderBookLadder
+                          orderbook={ob}
+                          quote={quote}
+                          onPriceClick={handleLadderClick}
+                          symbol={symbol}
+                        />
+                      </Panel>
+                      <ResizeHandle />
+                      <Panel minSize={20} className="flex">
+                        <TradesPanel trades={trades?.trades || []} />
+                      </Panel>
+                    </PanelGroup>
+                  </Panel>
+                  <ResizeHandle vertical={false} />
+                  <Panel minSize={20} className="flex">
+                    <MarketPulseBar
+                      lastPrice={lastTradePrice}
+                      change={priceChange}
+                      changePct={priceChangePct}
+                      high={sessionHigh}
+                      low={sessionLow}
+                      volume={sessionVolume}
+                      spread={quotedSpread}
+                    />
+                  </Panel>
+                </PanelGroup>
+              </Panel>
+              <ResizeHandle />
+              <Panel defaultSize={32} minSize={24} className="flex">
+                <PanelGroup direction="vertical" className="h-full w-full gap-4">
+                  <Panel minSize={35} className="flex">
+                    <OrderEntryPanel
+                      symbol={symbol}
+                      side={side}
+                      setSide={setSide}
+                      type={type}
+                      setType={setType}
+                      qty={qty}
+                      setQty={setQty}
+                      price={price}
+                      setPrice={setPrice}
+                      onPlaceOrder={handlePlaceOrder}
+                      isLoading={placeOrderMutation.isPending}
+                      show={showOrderForm}
+                      onToggle={() => setShowOrderForm(!showOrderForm)}
+                    />
+                  </Panel>
+                  <ResizeHandle vertical={false} />
+                  <Panel minSize={25} className="flex">
+                    <PanelGroup direction="vertical" className="h-full w-full gap-4">
+                      <Panel minSize={30} className="flex">
+                        <PositionsPanel positions={positions} />
+                      </Panel>
+                      <ResizeHandle vertical={false} />
+                      <Panel minSize={30} className="flex">
+                        <OrdersPanel
+                          orders={allOrders?.orders || []}
+                          onCancelOrder={handleCancelOrder}
+                          cancelLoading={cancelOrderMutation.isPending}
+                        />
+                      </Panel>
+                    </PanelGroup>
+                  </Panel>
+                </PanelGroup>
+              </Panel>
+            </PanelGroup>
           )}
         </main>
       </div>
@@ -383,6 +421,16 @@ function SideDock({ onOpenDocs, onToggleTheme }: { onOpenDocs: () => void; onTog
     </aside>
   );
 }
+
+const ResizeHandle = ({ vertical = true }: { vertical?: boolean }) => (
+  <PanelResizeHandle className="group flex items-center justify-center transition-colors">
+    <div
+      className={`rounded-full bg-slate-800/80 shadow-inner shadow-slate-950/40 transition-colors group-hover:bg-cyan-500/40 ${
+        vertical ? 'h-8 w-1.5' : 'h-1.5 w-8'
+      }`}
+    />
+  </PanelResizeHandle>
+);
 
 function TopToolbar({
   symbol,
