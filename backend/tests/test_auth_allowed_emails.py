@@ -1,15 +1,13 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
-from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from src.app.config import settings
-from src.db.models import APIKey, AllowedEmail
+from src.db.models import AllowedEmail
 from src.db.session import get_db_session
 
 
@@ -122,7 +120,7 @@ def test_register_succeeds_if_allow_all_is_true(test_app: TestClient) -> None:
 def test_admin_can_register_even_if_not_in_list(test_app: TestClient) -> None:
     # Add an email to the list to ensure it's not empty
     asyncio.run(_add_allowed_email("allowed@example.com"))
-    admin_email = list(settings.admin_emails)[0]
+    admin_email = next(iter(settings.admin_emails))
 
     res = test_app.post(
         "/api/v1/auth/register",

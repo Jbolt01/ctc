@@ -9,7 +9,9 @@ def _headers(api_key: str) -> dict[str, str]:
 
 def test_team_settings_owner_and_member_controls(test_app: TestClient, admin_key: str) -> None:
     # Owner registers and gets team
-    test_app.post("/api/v1/admin/allowed-emails", headers=_headers(admin_key), json={"email": "own@example.com"})
+    test_app.post("/api/v1/admin/allowed-emails",
+                  headers=_headers(admin_key),
+                  json={"email": "own@example.com"})
     reg_owner = test_app.post(
         "/api/v1/auth/register",
         json={"openid_sub": "own_sub", "email": "own@example.com", "name": "Owner"},
@@ -28,7 +30,9 @@ def test_team_settings_owner_and_member_controls(test_app: TestClient, admin_key
 
     # A member joins using the join code
     code = data["join_code"]
-    test_app.post("/api/v1/admin/allowed-emails", headers=_headers(admin_key), json={"email": "mem@example.com"})
+    test_app.post("/api/v1/admin/allowed-emails",
+                  headers=_headers(admin_key),
+                  json={"email": "mem@example.com"})
     reg_member = test_app.post(
         "/api/v1/auth/register",
         json={
@@ -73,7 +77,9 @@ def test_team_settings_owner_and_member_controls(test_app: TestClient, admin_key
 
 def test_team_api_keys_crud(test_app: TestClient, admin_key: str) -> None:
     # Register owner
-    test_app.post("/api/v1/admin/allowed-emails", headers=_headers(admin_key), json={"email": "o2@example.com"})
+    test_app.post("/api/v1/admin/allowed-emails",
+                  headers=_headers(admin_key),
+                  json={"email": "o2@example.com"})
     reg = test_app.post(
         "/api/v1/auth/register",
         json={"openid_sub": "own2", "email": "o2@example.com", "name": "Owner2"},
@@ -85,7 +91,9 @@ def test_team_api_keys_crud(test_app: TestClient, admin_key: str) -> None:
     # Join member
     ts = test_app.get("/api/v1/teams/me", headers=_headers(key_owner))
     code = ts.json()["join_code"]
-    test_app.post("/api/v1/admin/allowed-emails", headers=_headers(admin_key), json={"email": "m2@example.com"})
+    test_app.post("/api/v1/admin/allowed-emails",
+                  headers=_headers(admin_key),
+                  json={"email": "m2@example.com"})
     reg_mem = test_app.post(
         "/api/v1/auth/register",
         json={

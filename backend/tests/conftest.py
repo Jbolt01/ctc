@@ -18,7 +18,7 @@ _ROOT = os.path.dirname(os.path.dirname(__file__))  # backend/
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-from src.app.config import settings
+from src.app.config import settings  # noqa: E402
 
 
 @pytest.fixture(scope="session")
@@ -117,9 +117,13 @@ def admin_key(test_app: TestClient) -> str:
 def api_keys(test_app: TestClient, admin_key: str) -> tuple[str, str]:
     """Register two users and return their API keys (A, B)."""
     # Add emails to allowed list before registering
-    res1 = test_app.post("/api/v1/admin/allowed-emails", headers={"X-API-Key": admin_key}, json={"email": "a@example.com"})
+    res1 = test_app.post("/api/v1/admin/allowed-emails",
+                         headers={"X-API-Key": admin_key},
+                         json={"email": "a@example.com"})
     assert res1.status_code == 200
-    res2 = test_app.post("/api/v1/admin/allowed-emails", headers={"X-API-Key": admin_key}, json={"email": "b@example.com"})
+    res2 = test_app.post("/api/v1/admin/allowed-emails",
+                         headers={"X-API-Key": admin_key},
+                         json={"email": "b@example.com"})
     assert res2.status_code == 200
 
     # Register User A

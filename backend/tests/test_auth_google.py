@@ -24,7 +24,9 @@ def test_register_and_login_with_id_token_monkeypatch(
     monkeypatch.setattr("src.app.main._verify_google_id_token", fake_verify)
 
     # Add email to allowed list
-    res = test_app.post("/api/v1/admin/allowed-emails", headers={"X-API-Key": admin_key}, json={"email": claims["email"]})
+    res = test_app.post("/api/v1/admin/allowed-emails",
+                        headers={"X-API-Key": admin_key},
+                        json={"email": claims["email"]})
     assert res.status_code == 200
 
     # Register

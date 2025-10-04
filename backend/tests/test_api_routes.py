@@ -73,7 +73,9 @@ def test_orders_open_filter_and_market_trades(
 def test_auth_create_team_via_api_key(test_app: TestClient, admin_key: str) -> None:
     # Register a user to obtain api key
     email = "another-admin@example.com"
-    res = test_app.post("/api/v1/admin/allowed-emails", headers=_headers(admin_key), json={"email": email})
+    res = test_app.post("/api/v1/admin/allowed-emails",
+                        headers=_headers(admin_key),
+                        json={"email": email})
     assert res.status_code == 200
     reg = test_app.post(
         "/api/v1/auth/register",

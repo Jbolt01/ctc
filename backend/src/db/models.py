@@ -33,7 +33,7 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc, onupdate=now_utc)
 
-    allowed_email: Mapped["AllowedEmail | None"] = relationship(back_populates="user")
+    allowed_email: Mapped[AllowedEmail | None] = relationship(back_populates="user")
 
 
 class AllowedEmail(Base):
@@ -47,7 +47,7 @@ class AllowedEmail(Base):
         nullable=True,
         unique=True,
     )
-    user: Mapped["User | None"] = relationship(back_populates="allowed_email")
+    user: Mapped[User | None] = relationship(back_populates="allowed_email")
 
 
 class Team(Base):

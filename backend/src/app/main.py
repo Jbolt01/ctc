@@ -18,8 +18,8 @@ from src.app.config import settings
 from src.app.deps import RequireAPIKey, require_admin
 from src.app.startup import attach_lifecycle
 from src.core.orders import OrderService
-from src.db.models import APIKey as APIKeyModel
 from src.db.models import AllowedEmail
+from src.db.models import APIKey as APIKeyModel
 from src.db.models import MarketData as MarketDataModel
 from src.db.models import Order as OrderModel
 from src.db.models import Position as PositionModel
@@ -396,7 +396,8 @@ async def register(request: LoginRequest, session: DbSession) -> LoginResponse:
             )
             if not allowed_email_rec:
                 raise HTTPException(
-                    status_code=403, detail="Email not allowed to register, please use correct email"
+                    status_code=403,
+                    detail="Email not allowed to register, please use correct email"
                 )
 
     # Check if user already exists

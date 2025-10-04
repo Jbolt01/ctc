@@ -11,7 +11,9 @@ def _headers(api_key: str) -> dict[str, str]:
 
 def test_register_create_unique_team_names(test_app: TestClient, admin_key: str) -> None:
     # First user registers and creates default team
-    test_app.post("/api/v1/admin/allowed-emails", headers=_headers(admin_key), json={"email": "u1@ex.com"})
+    test_app.post("/api/v1/admin/allowed-emails",
+                  headers=_headers(admin_key),
+                  json={"email": "u1@ex.com"})
     r1 = test_app.post(
         "/api/v1/auth/register",
         json={"openid_sub": "u1", "email": "u1@ex.com", "name": "Alex"},
@@ -21,7 +23,9 @@ def test_register_create_unique_team_names(test_app: TestClient, admin_key: str)
     assert t1["name"].startswith("Alex's Team")
 
     # Second user requests the same team name explicitly; backend must ensure uniqueness
-    test_app.post("/api/v1/admin/allowed-emails", headers=_headers(admin_key), json={"email": "u2@ex.com"})
+    test_app.post("/api/v1/admin/allowed-emails",
+                  headers=_headers(admin_key),
+                  json={"email": "u2@ex.com"})
     r2 = test_app.post(
         "/api/v1/auth/register",
         json={
@@ -40,13 +44,14 @@ def test_register_create_unique_team_names(test_app: TestClient, admin_key: str)
 
 def test_register_join_team_via_code(test_app: TestClient, admin_key: str) -> None:
     # Owner registers first
-    test_app.post("/api/v1/admin/allowed-emails", headers=_headers(admin_key), json={"email": "owner@ex.com"})
+    test_app.post("/api/v1/admin/allowed-emails",
+                  headers=_headers(admin_key),
+                  json={"email": "owner@ex.com"})
     owner = test_app.post(
         "/api/v1/auth/register",
         json={"openid_sub": "owner", "email": "owner@ex.com", "name": "Owner"},
     )
     assert owner.status_code == 200
-    owner_key = owner.json()["api_key"]
 
     # Admin list teams includes join_code
     teams = test_app.get("/api/v1/admin/teams", headers=_headers(admin_key))
@@ -58,7 +63,9 @@ def test_register_join_team_via_code(test_app: TestClient, admin_key: str) -> No
     code = owner_team["join_code"]
 
     # Joiner uses the join code to register and join as member
-    test_app.post("/api/v1/admin/allowed-emails", headers=_headers(admin_key), json={"email": "joiner@ex.com"})
+    test_app.post("/api/v1/admin/allowed-emails",
+                  headers=_headers(admin_key),
+                  json={"email": "joiner@ex.com"})
     joiner = test_app.post(
         "/api/v1/auth/register",
         json={
@@ -75,7 +82,9 @@ def test_register_join_team_via_code(test_app: TestClient, admin_key: str) -> No
     assert team_info["role"] == "member"
 
     # Invalid code should 404
-    test_app.post("/api/v1/admin/allowed-emails", headers=_headers(admin_key), json={"email": "bad@ex.com"})
+    test_app.post("/api/v1/admin/allowed-emails",
+                  headers=_headers(admin_key),
+                  json={"email": "bad@ex.com"})
     bad = test_app.post(
         "/api/v1/auth/register",
         json={

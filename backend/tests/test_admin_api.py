@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime, timedelta
 
-import pytest
 from fastapi.testclient import TestClient
 
 
@@ -208,7 +206,9 @@ def test_admin_resets(test_app: TestClient, admin_key: str) -> None:
     assert ls.json() == []
 
     # Create a user and team; then reset users
-    res = test_app.post("/api/v1/admin/allowed-emails", headers=_headers(admin_key), json={"email": "alpha@example.com"})
+    res = test_app.post("/api/v1/admin/allowed-emails",
+                        headers=_headers(admin_key),
+                        json={"email": "alpha@example.com"})
     assert res.status_code == 200
     reg = test_app.post(
         "/api/v1/auth/register",

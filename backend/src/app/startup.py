@@ -27,7 +27,8 @@ async def seed_allowed_emails(session: AsyncSession) -> None:
     existing_emails = {row[0] for row in existing_rows}
 
     if emails:
-        session.add_all([AllowedEmail(email=email) for email in emails if email not in existing_emails])
+        session.add_all([AllowedEmail(email=email) for email in emails
+                         if email not in existing_emails])
         await session.commit()
 
 
