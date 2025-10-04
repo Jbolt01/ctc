@@ -242,6 +242,7 @@ dependencies = [
     { name = "greenlet" },
     { name = "httpx" },
     { name = "hypothesis" },
+    { name = "liquibook" },
     { name = "mypy" },
     { name = "orjson" },
     { name = "psycopg", extra = ["binary"] },
@@ -269,6 +270,7 @@ requires-dist = [
     { name = "greenlet", specifier = ">=3.0.3" },
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "hypothesis", specifier = ">=6.103.0" },
+    { name = "liquibook", specifier = ">=2.0.1" },
     { name = "mypy", specifier = ">=1.10.0" },
     { name = "orjson", specifier = ">=3.10.3" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.1.18" },
@@ -435,6 +437,21 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/f2/97/ebf4da567aa6827c909642694d71c9fcf53e5b504f2d96afea02718862f3/iniconfig-2.1.0.tar.gz", hash = "sha256:3abbd2e30b36733fee78f9c7f7308f2d0050e88f0087fd25c2645f63c773e1c7", size = 4793, upload-time = "2025-03-19T20:09:59.721Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/2c/e1/e6716421ea10d38022b952c159d5161ca1193197fb744506875fbb87ea7b/iniconfig-2.1.0-py3-none-any.whl", hash = "sha256:9deba5723312380e77435581c6bf4935c94cbfab9b1ed33ef8d238ea168eb760", size = 6050, upload-time = "2025-03-19T20:10:01.071Z" },
+]
+
+[[package]]
+name = "liquibook"
+version = "2.0.1"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a2/bf/f881c149456c275d7d80031434eb51ae4f6d096c4696c6d038985ba668d5/liquibook-2.0.1-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:360c049aaf9244e3379a6e000b7993b55e25363742b5e96a4f3b9acabffce58b", size = 178519, upload-time = "2025-09-06T18:31:31.202Z" },
+    { url = "https://files.pythonhosted.org/packages/e2/60/14ec947339507db130adda46b11340163bae739d7ef72c31931dadfc1a6c/liquibook-2.0.1-cp312-cp312-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:e1ea884f0b7d8c67dbecaf979714f6f41a9b39913649a3ab605f59728ffa90a7", size = 228473, upload-time = "2025-09-06T18:31:32.323Z" },
+    { url = "https://files.pythonhosted.org/packages/bd/6b/d253d3663b58e6ceae99a3e67896d796e939f133db577bcfc0bd91743e1d/liquibook-2.0.1-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:95f48d8d4fe72ca2cf9556a1312555bc8bb03480738b3ce9331c72ea756710ef", size = 1264329, upload-time = "2025-09-06T18:31:33.245Z" },
+    { url = "https://files.pythonhosted.org/packages/60/54/eb73b87b91f0311e096d0c84de43f670a5d861591cfc456de0b960ea17ae/liquibook-2.0.1-cp312-cp312-win_amd64.whl", hash = "sha256:f86661d132ab45f7299c9b0c08801598b785709ca2a2321473fa1f72405b4ea7", size = 206573, upload-time = "2025-09-06T18:31:34.319Z" },
+    { url = "https://files.pythonhosted.org/packages/82/9d/c17341a3a152d885bcdfa61c51c3f5f4c53f3627404264f40b1a52242901/liquibook-2.0.1-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:369750568b204a82e08cfb324582dd7fe0b08f299f1d542fd6cb76ca47bf0e45", size = 178560, upload-time = "2025-09-06T18:31:35.097Z" },
+    { url = "https://files.pythonhosted.org/packages/e7/2b/af231e2224e545011141ab2ce5c0dee157e1f9bc96a10339149fbdb4aea1/liquibook-2.0.1-cp313-cp313-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:623638ae6b31b46067b108ecfbc2bf5865b8d3d586bbbcb33ca6d98957468d3c", size = 228113, upload-time = "2025-09-06T18:31:36.618Z" },
+    { url = "https://files.pythonhosted.org/packages/7e/a2/fa5d1740f009ca9923e9a6d7df5cea580e03f9f2f595e5bab4d546b2153e/liquibook-2.0.1-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:55dea9e8b60a0687776b0a1475b213c6f2fdc893a1482b797d2e15d655c77ee4", size = 1263999, upload-time = "2025-09-06T18:31:37.884Z" },
+    { url = "https://files.pythonhosted.org/packages/f4/18/51b1701b010255700e9b207ef72a6321b9a3354553360068a4615341fad2/liquibook-2.0.1-cp313-cp313-win_amd64.whl", hash = "sha256:e2a06680e55fd20b9244d160c555bf19a0ba2199f9be9482528090eda8826cbd", size = 206670, upload-time = "2025-09-06T18:31:38.832Z" },
 ]
 
 [[package]]

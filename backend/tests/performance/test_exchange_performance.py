@@ -225,12 +225,13 @@ def test_matching_engine_limit_book_build_performance(
         total_time = sum(latencies) or 1e-9
         throughput = len(latencies) / total_time
 
+        bid_levels, ask_levels = engine.get_orderbook_levels(depth=100)
         return {
             "throughput_ops": throughput,
             "trades": float(trades),
             "traded_volume": float(traded_volume),
-            "remaining_bids": float(len(engine.bids)),
-            "remaining_asks": float(len(engine.asks)),
+            "remaining_bids": float(sum(qty for _, qty in bid_levels)),
+            "remaining_asks": float(sum(qty for _, qty in ask_levels)),
             "latency_series": latencies,
         }
 
