@@ -100,44 +100,9 @@ jobs:
         env:
           SUMMARY_PATH: reports/performance/summary.md
         run: |
-          uv run python - <<'PY'
-from __future__ import annotations
-
-import json
-import os
-import pathlib
-
-report_path = pathlib.Path("reports/performance/exchange.json")
-payload = json.loads(report_path.read_text())
-
-lines: list[str] = []
-lines.append("| Benchmark | Mean (ms) | Median (ms) | Ops/s | Rounds |")
-lines.append("| --- | --- | --- | --- | --- |")
-for bench in payload.get("benchmarks", []):
-    stats = bench.get("stats", {})
-    lines.append(
-        f"| {bench.get('name')} | {stats.get('mean', 0) * 1000:.3f} | "
-        f"{stats.get('median', 0) * 1000:.3f} | {stats.get('ops', 0):.1f} | "
-        f"{stats.get('rounds', 0)} |"
-    )
-
-for bench in payload.get("benchmarks", []):
-    extra = bench.get("extra_info") or {}
-    if not extra:
-        continue
-    lines.append("")
-    lines.append(f"### {bench.get('name')}")
-    for key in sorted(extra):
-        value = extra[key]
-        if isinstance(value, float):
-            lines.append(f"- **{key}**: {value:.6f}")
-        else:
-            lines.append(f"- **{key}**: {value}")
-
-path = pathlib.Path(os.environ["SUMMARY_PATH"])
-path.write_text("\n".join(lines) + "\n")
-print(path.read_text())
-PY
+          uv run python scripts/render_benchmark_summary.py \
+            --report reports/performance/exchange.json \
+            --output "${SUMMARY_PATH}"
           cat "${SUMMARY_PATH}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload Performance Benchmarks
