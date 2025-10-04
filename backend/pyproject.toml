@@ -26,6 +26,7 @@ dependencies = [
   "pytest-cov>=5.0.0",
   "pytest-asyncio>=0.21.0",
   "google-auth>=2.35.0",
+  "pytest-benchmark>=5.1.0",
 ]
 
 [tool.ruff]
@@ -43,6 +44,9 @@ testpaths = ["tests"]
 python_files = "test_*.py"
 addopts = "-q"
 pythonpath = ["src"]
+markers = [
+  "performance: performance characterization suite for exchange components",
+]
 
 [tool.mypy]
 python_version = "3.12"
