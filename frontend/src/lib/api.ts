@@ -152,7 +152,7 @@ export function adminCreateSymbol(payload: { symbol: string; name: string; symbo
 export function adminListLimits() {
   return apiGet<Array<{ id: string; symbol: string; max_position: number; max_order_size: number; applies_to_admin: boolean }>>(`/api/v1/admin/limits`);
 }
-export function adminCreateLimit(payload: { symbol: string; max_position: number; max_order_size: number; applies_to_admin?: boolean }) {
+export function adminCreateLimit(payload: { symbol: string; max_position: number; max_order_size?: number; applies_to_admin?: boolean }) {
   return apiPost(`/api/v1/admin/limits`, payload);
 }
 export function adminListHours() {

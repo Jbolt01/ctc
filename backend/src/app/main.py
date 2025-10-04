@@ -78,6 +78,7 @@ class PlaceOrderResponse(BaseModel):
     order_id: str
     status: str
     created_at: datetime
+    message: str | None = None
 
 
 _ORDERS: dict[str, OrderSummary] = {}
@@ -143,7 +144,7 @@ async def place_order(
     if sym_row.trading_halted or sym_row.settlement_active:
         raise HTTPException(status_code=403, detail="Trading halted or settled for this symbol")
     service = OrderService(session)
-    db_order = await service.place_order(
+    db_order, message = await service.place_order(
         team_id=team.id,
         symbol_code=payload.symbol,
         side=payload.side,
@@ -169,6 +170,7 @@ async def place_order(
         order_id=str(db_order.id),
         status=db_order.status,
         created_at=db_order.created_at,
+        message=message,
     )
 
 
@@ -926,19 +928,25 @@ async def remove_member(user_id: str, api_key: RequireAPIKey, session: DbSession
         target_id = user_id
     if target_id == actor.id:
         raise HTTPException(status_code=400, detail="Owner cannot remove self")
-    # Remove membership
-    row = await session.scalar(
+
+    # Find the user to be removed
+    target_user = await session.get(UserModel, target_id)
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User to remove not found")
+
+    # Verify they are in the team before deleting
+    membership = await session.scalar(
         select(TeamMemberModel).where(
             TeamMemberModel.team_id == team.id, TeamMemberModel.user_id == target_id
         )
     )
-    if not row:
-        raise HTTPException(status_code=404, detail="Member not found")
-    await session.execute(
-        delete(TeamMemberModel).where(
-            TeamMemberModel.team_id == team.id, TeamMemberModel.user_id == target_id
-        )
-    )
+    if not membership:
+        raise HTTPException(status_code=404, detail="Member not found in this team")
+
+    # Delete the user completely
+    await session.execute(delete(APIKeyModel).where(APIKeyModel.user_id == target_user.id))
+    await session.execute(delete(TeamMemberModel).where(TeamMemberModel.user_id == target_user.id))
+    await session.delete(target_user)
     await session.commit()
     return {"status": "removed"}
 
@@ -1275,7 +1283,7 @@ async def get_open_orders(
 class LimitIn(BaseModel):
     symbol: str
     max_position: int
-    max_order_size: int
+    max_order_size: int | None = None  # Make optional
     applies_to_admin: bool = False
 
 
@@ -1286,12 +1294,22 @@ async def create_limit(payload: LimitIn, session: DbSession) -> dict[str, str]:
     sym = await session.scalar(select(SymbolModel).where(SymbolModel.symbol == payload.symbol))
     if not sym:
         raise HTTPException(status_code=404, detail="Symbol not found")
-    limit = PositionLimitModel(
-        symbol_id=sym.id,
-        max_position=payload.max_position,
-        max_order_size=payload.max_order_size,
-        applies_to_admin=payload.applies_to_admin,
+
+    limit = await session.scalar(
+        select(PositionLimitModel).where(PositionLimitModel.symbol_id == sym.id)
     )
+
+    if not limit:
+        limit = PositionLimitModel(symbol_id=sym.id)
+
+    limit.max_position = payload.max_position
+    # Default to massive number if not provided
+    if payload.max_order_size is not None:
+        limit.max_order_size = payload.max_order_size
+    else:
+        limit.max_order_size = 2_147_483_647
+    limit.applies_to_admin = payload.applies_to_admin
+
     session.add(limit)
     await session.commit()
     return {"status": "ok"}

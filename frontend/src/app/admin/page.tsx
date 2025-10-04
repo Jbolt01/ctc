@@ -15,20 +15,18 @@ import {
   adminListAllowedEmails,
   adminAddAllowedEmail,
   adminDeleteAllowedEmail,
-  adminListHours,
-  adminListCompetitions,
-  adminCreateCompetition,
   adminCreateSymbol,
   adminDeleteSymbol,
-  adminUpsertMarketData,
   adminPauseSymbols,
   adminStartSymbols,
   adminSettleSymbol,
   adminListSymbols,
+  adminListLimits,
+  adminCreateLimit,
   fetchSymbols,
 } from '../../lib/api';
 
-type TabKey = 'users' | 'symbols' | 'teams' | 'hours' | 'competitions' | 'marketdata' | 'emails';
+type TabKey = 'users' | 'symbols' | 'teams' | 'emails';
 
 export default function AdminPage() {
   const router = useRouter();
@@ -116,9 +114,6 @@ export default function AdminPage() {
               ['symbols', 'Symbols'],
               ['teams', 'Teams'],
               ['emails', 'Emails'],
-              // ['hours', 'Trading Hours'],
-              // ['competitions', 'Competitions'],
-              ['marketdata', 'Market Data'],
             ] as Array<[TabKey, string]>
           ).map(([k, label]) => (
             <button
@@ -141,9 +136,6 @@ export default function AdminPage() {
           {active === 'symbols' && <SymbolsPanel />}
           {active === 'teams' && <TeamsPanel />}
           {active === 'emails' && <EmailsPanel />}
-          {/* {active === 'hours' && <HoursPanel />} */}
-          {/* {active === 'competitions' && <CompetitionsPanel />} */}
-          {active === 'marketdata' && <MarketDataPanel />}
         </div>
       </div>
     </div>
@@ -344,16 +336,24 @@ function UsersPanel() {
 
 function SymbolsPanel() {
   const [symbols, setSymbols] = useState<Array<{ symbol: string; name: string; trading_halted?: boolean; settlement_active?: boolean; settlement_price?: number | null }>>([]);
+  const [limits, setLimits] = useState<any[]>([]);
   const [form, setForm] = useState({ symbol: '', name: '', symbol_type: 'equity', tick_size: 0.01, lot_size: 1 });
-  const [settlePrice, setSettlePrice] = useState<number>(0);
-  const [selectedSymbol, setSelectedSymbol] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
 
+  // State for settlement
+  const [settleSymbol, setSettleSymbol] = useState('');
+  const [settlePrice, setSettlePrice] = useState<number>(0);
+
+  // State for limits
+  const [limitSymbol, setLimitSymbol] = useState('');
+  const [maxPos, setMaxPos] = useState<number>(0);
+  const [maxOrder, setMaxOrder] = useState<number>(0);
+
   const load = async () => {
-    // Prefer admin list for status, fallback to public list
     try {
       const rows = await adminListSymbols();
       setSymbols(rows);
+      setLimits(await adminListLimits());
       setError(null);
     } catch (e: any) {
       const s = await fetchSymbols();
@@ -373,20 +373,17 @@ function SymbolsPanel() {
       setError(e?.message || 'Failed to create symbol');
     }
   };
+
   const remove = async (symbol: string) => {
     try {
       setError(null);
       if (typeof window !== 'undefined') {
         try {
-          // Only prompt if confirm is available; jsdom may not implement it
-          const isJsdom = typeof navigator !== 'undefined' && /jsdom/i.test(navigator.userAgent || '')
+          const isJsdom = typeof navigator !== 'undefined' && /jsdom/i.test(navigator.userAgent || '');
           if (typeof window.confirm === 'function' && !isJsdom) {
-            const ok = window.confirm(`Delete symbol ${symbol}? This cannot be undone.`);
-            if (!ok) return;
+            if (!window.confirm(`Delete symbol ${symbol}? This cannot be undone.`)) return;
           }
-        } catch {
-          // Ignore confirm errors in non-browser environments
-        }
+        } catch {}
       }
       await adminDeleteSymbol(symbol);
       await load();
@@ -414,10 +411,10 @@ function SymbolsPanel() {
     }
   };
   const settle = async () => {
-    if (!selectedSymbol || !settlePrice) return;
+    if (!settleSymbol || !settlePrice) return;
     try {
       setError(null);
-      await adminSettleSymbol(selectedSymbol, settlePrice);
+      await adminSettleSymbol(settleSymbol, settlePrice);
       setSettlePrice(0);
       await load();
     } catch (e: any) {
@@ -425,24 +422,50 @@ function SymbolsPanel() {
     }
   };
 
+  const setLimit = async () => {
+    if (!limitSymbol || !maxPos) return;
+    try {
+      setError(null);
+      const payload: { symbol: string; max_position: number; max_order_size?: number; applies_to_admin: boolean } = {
+        symbol: limitSymbol,
+        max_position: maxPos,
+        applies_to_admin: false,
+      };
+      if (maxOrder > 0) {
+        payload.max_order_size = maxOrder;
+      }
+      await adminCreateLimit(payload);
+      await load();
+    } catch (e: any) {
+      setError(e?.message || 'Failed to set limit');
+    }
+  };
+
   return (
     <div>
-      <SectionHeader title="Symbols" subtitle="Create and delete tradable symbols" />
-      {error && (
-        <div className="mb-3 rounded border border-red-500/40 bg-red-900/30 text-red-300 px-3 py-2 font-mono text-sm">
-          {error}
-        </div>
-      )}
+      <SectionHeader title="Symbols" subtitle="Create/delete symbols and manage trading controls" />
+      {error && <div className="mb-3 rounded border border-red-500/40 bg-red-900/30 text-red-300 px-3 py-2 font-mono text-sm">{error}</div>}
       <div className="flex items-center gap-2 mb-4">
         <button onClick={() => pause(undefined)} className="px-3 py-1.5 bg-red-900/50 border border-red-500/40 text-red-300 rounded font-mono">Pause All</button>
         <button onClick={() => start(undefined)} className="px-3 py-1.5 bg-emerald-900/50 border border-emerald-500/40 text-emerald-300 rounded font-mono">Start All</button>
-        <div className="ml-auto flex items-center gap-2">
-          <select className="bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white font-mono" value={selectedSymbol} onChange={e => setSelectedSymbol(e.target.value)}>
-            <option value="">Select symbol</option>
+      </div>
+      <div className="grid grid-cols-1 gap-4 mb-6 p-4 border border-gray-800 rounded-lg">
+        <div className="flex items-center gap-2">
+          <select aria-label="Select symbol to settle" className="bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white font-mono w-full" value={settleSymbol} onChange={e => setSettleSymbol(e.target.value)}>
+            <option value="">Select symbol to settle</option>
             {symbols.map(s => (<option key={s.symbol} value={s.symbol}>{s.symbol}</option>))}
           </select>
           <input type="number" step="0.01" className="bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white font-mono" placeholder="Settlement price" value={settlePrice || ''} onChange={e => setSettlePrice(Number(e.target.value))} />
-          <button onClick={settle} className="px-3 py-1.5 bg-amber-900/50 border border-amber-500/40 text-amber-300 rounded font-mono">Settle</button>
+          <button onClick={settle} className="px-3 py-1.5 bg-amber-900/50 border border-amber-500/40 text-amber-300 rounded font-mono whitespace-nowrap">Settle</button>
+        </div>
+        <div className="flex items-center gap-2">
+          <select aria-label="Select symbol to limit" className="bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white font-mono w-full" value={limitSymbol} onChange={e => setLimitSymbol(e.target.value)}>
+            <option value="">Select symbol to limit</option>
+            {symbols.map(s => (<option key={s.symbol} value={s.symbol}>{s.symbol}</option>))}
+          </select>
+          <input type="number" className="bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white font-mono" placeholder="Max Position" value={maxPos || ''} onChange={e => setMaxPos(Number(e.target.value))} />
+          <input type="number" className="bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white font-mono" placeholder="Max Order (optional)" value={maxOrder || ''} onChange={e => setMaxOrder(Number(e.target.value))} />
+          <button onClick={setLimit} className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-700 text-white rounded font-mono whitespace-nowrap">Set Limit</button>
         </div>
       </div>
       <div className="grid md:grid-cols-2 gap-4">
@@ -461,24 +484,28 @@ function SymbolsPanel() {
           <button onClick={create} className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded font-mono">Create Symbol</button>
         </div>
         <div className="space-y-2">
-          {symbols.map(s => (
-            <div key={s.symbol} className="flex items-center justify-between bg-gray-800/50 rounded px-3 py-2 border border-gray-700">
-              <div className="text-white font-mono font-bold">{s.symbol}</div>
-              <div className="text-gray-400 font-mono flex-1 ml-4">{s.name}</div>
-              <div className="flex items-center gap-2">
-                {s.settlement_active ? (
-                  <span className="px-2 py-0.5 rounded-full text-xs font-mono bg-amber-900/50 border border-amber-500/40 text-amber-300">Settled @ {s.settlement_price?.toFixed(2)}</span>
-                ) : s.trading_halted ? (
-                  <span className="px-2 py-0.5 rounded-full text-xs font-mono bg-red-900/50 border border-red-500/40 text-red-300">Paused</span>
-                ) : (
-                  <span className="px-2 py-0.5 rounded-full text-xs font-mono bg-emerald-900/50 border border-emerald-500/40 text-emerald-300">Live</span>
-                )}
-                <button onClick={() => pause(s.symbol)} className="px-2 py-1 bg-red-900/50 border border-red-500/40 text-red-300 rounded font-mono text-xs">Pause</button>
-                <button onClick={() => start(s.symbol)} className="px-2 py-1 bg-emerald-900/50 border border-emerald-500/40 text-emerald-300 rounded font-mono text-xs">Start</button>
-                <button onClick={() => remove(s.symbol)} className="text-red-400 font-mono hover:underline">Delete</button>
+          {symbols.map(s => {
+            const limit = limits.find(l => l.symbol === s.symbol);
+            return (
+              <div key={s.symbol} className="flex items-center justify-between bg-gray-800/50 rounded px-3 py-2 border border-gray-700">
+                <div className="text-white font-mono font-bold">{s.symbol}</div>
+                <div className="text-gray-400 font-mono flex-1 ml-4">{s.name}</div>
+                {limit && <div className="text-gray-500 font-mono text-xs mr-2">Limit: {limit.max_position}</div>}
+                <div className="flex items-center gap-2">
+                  {s.settlement_active ? (
+                    <span className="px-2 py-0.5 rounded-full text-xs font-mono bg-amber-900/50 border border-amber-500/40 text-amber-300">Settled @ {s.settlement_price?.toFixed(2)}</span>
+                  ) : s.trading_halted ? (
+                    <span className="px-2 py-0.5 rounded-full text-xs font-mono bg-red-900/50 border border-red-500/40 text-red-300">Paused</span>
+                  ) : (
+                    <span className="px-2 py-0.5 rounded-full text-xs font-mono bg-emerald-900/50 border border-emerald-500/40 text-emerald-300">Live</span>
+                  )}
+                  <button onClick={() => pause(s.symbol)} className="px-2 py-1 bg-red-900/50 border border-red-500/40 text-red-300 rounded font-mono text-xs">Pause</button>
+                  <button onClick={() => start(s.symbol)} className="px-2 py-1 bg-emerald-900/50 border border-emerald-500/40 text-emerald-300 rounded font-mono text-xs">Start</button>
+                  <button onClick={() => remove(s.symbol)} className="text-red-400 font-mono hover:underline">Delete</button>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>
@@ -529,107 +556,6 @@ function TeamsPanel() {
             )}
           </div>
         ))}
-      </div>
-    </div>
-  );
-}
-
-function HoursPanel() {
-  const [rows, setRows] = useState<Array<{ id: string; symbol: string; day_of_week: number; open_time: string; close_time: string; is_active: boolean }>>([]);
-  useEffect(() => { (async () => setRows(await adminListHours()))(); }, []);
-
-  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  return (
-    <div>
-      <SectionHeader title="Trading Hours" subtitle="Review configured market hours" />
-      <div className="overflow-x-auto">
-        <table className="min-w-full text-left font-mono text-sm">
-          <thead className="text-gray-400">
-            <tr>
-              <th className="px-3 py-2">Symbol</th>
-              <th className="px-3 py-2">Day</th>
-              <th className="px-3 py-2">Open</th>
-              <th className="px-3 py-2">Close</th>
-              <th className="px-3 py-2">Active</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-800 text-white">
-            {rows.map(r => (
-              <tr key={r.id}>
-                <td className="px-3 py-2">{r.symbol}</td>
-                <td className="px-3 py-2">{days[(r.day_of_week - 1 + 7) % 7]}</td>
-                <td className="px-3 py-2">{r.open_time}</td>
-                <td className="px-3 py-2">{r.close_time}</td>
-                <td className="px-3 py-2">{r.is_active ? 'Yes' : 'No'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-function CompetitionsPanel() {
-  const [rows, setRows] = useState<Array<{ id: string; name: string; start_time: string; end_time: string; is_active: boolean }>>([]);
-  const [form, setForm] = useState({ name: '', start_time: '', end_time: '', is_active: false });
-  const load = async () => setRows(await adminListCompetitions());
-  useEffect(() => { load(); }, []);
-
-  const create = async () => {
-    await adminCreateCompetition(form);
-    setForm({ name: '', start_time: '', end_time: '', is_active: false });
-    await load();
-  };
-
-  return (
-    <div>
-      <SectionHeader title="Competitions" subtitle="Create and review competitions" />
-      <div className="grid md:grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <input className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white font-mono" placeholder="Name" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
-          <input type="datetime-local" className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white font-mono" value={form.start_time} onChange={e => setForm({ ...form, start_time: e.target.value })} />
-          <input type="datetime-local" className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white font-mono" value={form.end_time} onChange={e => setForm({ ...form, end_time: e.target.value })} />
-          <label className="inline-flex items-center gap-2 text-gray-300 font-mono">
-            <input type="checkbox" checked={form.is_active} onChange={e => setForm({ ...form, is_active: e.target.checked })} /> Active
-          </label>
-          <button onClick={create} className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded font-mono">Create Competition</button>
-        </div>
-        <div className="space-y-2">
-          {rows.map(r => (
-            <div key={r.id} className="bg-gray-800/50 border border-gray-700 rounded px-3 py-2 text-white font-mono">
-              <div className="font-bold text-cyan-400">{r.name}</div>
-              <div className="text-gray-400 text-sm">{new Date(r.start_time).toLocaleString()} → {new Date(r.end_time).toLocaleString()}</div>
-              <div className="text-sm">{r.is_active ? 'Active' : 'Inactive'}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function MarketDataPanel() {
-  const [symbols, setSymbols] = useState<Array<{ symbol: string; name: string }>>([]);
-  const [symbol, setSymbol] = useState('');
-  const [close, setClose] = useState<number>(0);
-  useEffect(() => { (async () => setSymbols((await fetchSymbols()).symbols))(); }, []);
-
-  const upsert = async () => {
-    await adminUpsertMarketData({ symbol, close });
-    setClose(0);
-  };
-
-  return (
-    <div>
-      <SectionHeader title="Market Data" subtitle="Seed or update close price for charts" />
-      <div className="flex gap-2 items-center">
-        <select className="bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white font-mono" value={symbol} onChange={e => setSymbol(e.target.value)}>
-          <option value="">Select symbol</option>
-          {symbols.map(s => (<option key={s.symbol} value={s.symbol}>{s.symbol}</option>))}
-        </select>
-        <input type="number" step="0.01" className="bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white font-mono" placeholder="Close price" value={close || ''} onChange={e => setClose(Number(e.target.value))} />
-        <button onClick={upsert} className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded font-mono">Upsert</button>
       </div>
     </div>
   );

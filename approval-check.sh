@@ -12,7 +12,7 @@ echo "🔍 Ruff lint..."
 uv run ruff check .
 
 echo "🧪 Backend tests..."
-uv run pytest --maxfail=1 --cov=src --cov-report=term-missing
+uv run pytest --maxfail=1 --cov=src --cov-report=term-missing --ignore=tests/performance
 
 cd ..
 

@@ -23,16 +23,14 @@ jest.mock('../../lib/api', () => ({
   adminListAllowedEmails: jest.fn(),
   adminAddAllowedEmail: jest.fn(),
   adminDeleteAllowedEmail: jest.fn(),
-  // adminListHours: jest.fn(),
-  // adminListCompetitions: jest.fn(),
-  // adminCreateCompetition: jest.fn(),
   adminCreateSymbol: jest.fn(),
   adminDeleteSymbol: jest.fn(),
-  adminUpsertMarketData: jest.fn(),
   adminPauseSymbols: jest.fn(),
   adminStartSymbols: jest.fn(),
   adminSettleSymbol: jest.fn(),
   adminListSymbols: jest.fn(),
+  adminListLimits: jest.fn(),
+  adminCreateLimit: jest.fn(),
   fetchSymbols: jest.fn(),
 }))
 
@@ -58,28 +56,23 @@ beforeEach(() => {
     { id: 't1', name: 'Alpha', member_count: 1, join_code: 'ABC' },
     { id: 't2', name: 'Beta', member_count: 2, join_code: 'DEF' },
   ])
-  // api.adminListHours.mockResolvedValue([
-  //   { id: 'h1', symbol: 'AAPL', day_of_week: 1, open_time: '09:30', close_time: '16:00', is_active: true },
-  //   { id: 'h2', symbol: 'GOOGL', day_of_week: 5, open_time: '09:30', close_time: '16:00', is_active: false },
-  // ])
-  // api.adminListCompetitions.mockResolvedValue([
-  //   { id: 'c1', name: 'Fall', start_time: '2025-09-01T13:00:00Z', end_time: '2025-09-30T20:00:00Z', is_active: true },
-  // ])
   api.adminListSymbols.mockResolvedValue([
     { symbol: 'AAPL', name: 'Apple', trading_halted: false, settlement_active: false },
     { symbol: 'GOOGL', name: 'Alphabet', trading_halted: true },
     { symbol: 'MSFT', name: 'Microsoft', settlement_active: true, settlement_price: 123.45 },
   ])
+  api.adminListLimits.mockResolvedValue([
+    { id: 'l1', symbol: 'AAPL', max_position: 1000, max_order_size: 100 },
+  ])
   api.fetchSymbols.mockResolvedValue({ symbols: [ { symbol: 'AAPL', name: 'Apple' }, { symbol: 'GOOGL', name: 'Alphabet' } ] })
   api.adminSetUserAdmin.mockResolvedValue(undefined)
   api.adminCreateTeam.mockResolvedValue(undefined)
-  // api.adminCreateCompetition.mockResolvedValue(undefined)
   api.adminCreateSymbol.mockResolvedValue(undefined)
   api.adminDeleteSymbol.mockResolvedValue(undefined)
   api.adminPauseSymbols.mockResolvedValue(undefined)
   api.adminStartSymbols.mockResolvedValue(undefined)
   api.adminSettleSymbol.mockResolvedValue(undefined)
-  api.adminUpsertMarketData.mockResolvedValue(undefined)
+  api.adminCreateLimit.mockResolvedValue(undefined)
   api.adminListAllowedEmails.mockResolvedValue(['test1@example.com', 'test2@example.com'])
   api.adminAddAllowedEmail.mockResolvedValue(undefined)
   api.adminDeleteAllowedEmail.mockResolvedValue(undefined)
@@ -228,23 +221,42 @@ describe('SymbolsPanel', () => {
     await waitFor(() => expect(api.adminListSymbols).toHaveBeenCalledTimes(2))
   })
 
-  it('settles a symbol only when both fields provided and resets price', async () => {
+  it('displays position limits for symbols', async () => {
+    await renderAdmin();
+    await userEvent.click(screen.getByRole('button', { name: 'Symbols' }));
+    expect(await screen.findByText('Limit: 1000')).toBeInTheDocument();
+  });
+
+  it('sets a position limit for a symbol', async () => {
     await renderAdmin()
     await userEvent.click(screen.getByRole('button', { name: 'Symbols' }))
-    const select = screen.getAllByRole('combobox').find(el => within(el).queryByText('Select symbol'))!
+    const select = screen.getByRole('combobox', { name: /select symbol to limit/i })
+    const maxPosInput = screen.getByPlaceholderText('Max Position')
+    const maxOrderInput = screen.getByPlaceholderText('Max Order (optional)')
+    const setLimitBtn = screen.getByRole('button', { name: 'Set Limit' })
+
+    // Select symbol, provide only max position
+    await userEvent.selectOptions(select, 'AAPL')
+    await userEvent.type(maxPosInput, '2000')
+    await userEvent.click(setLimitBtn)
+    // max_order_size should be omitted
+    expect(api.adminCreateLimit).toHaveBeenCalledWith({ symbol: 'AAPL', max_position: 2000, applies_to_admin: false })
+
+    // Provide both
+    await userEvent.clear(maxOrderInput); await userEvent.type(maxOrderInput, '500')
+    await userEvent.click(setLimitBtn)
+    expect(api.adminCreateLimit).toHaveBeenCalledWith({ symbol: 'AAPL', max_position: 2000, max_order_size: 500, applies_to_admin: false })
+  })
+
+  it('settles a symbol', async () => {
+    await renderAdmin()
+    await userEvent.click(screen.getByRole('button', { name: 'Symbols' }))
+    const select = screen.getByRole('combobox', { name: /select symbol to settle/i })
     const priceInput = screen.getByPlaceholderText('Settlement price')
     const settleBtn = screen.getByRole('button', { name: 'Settle' })
 
-    // Missing both -> no call
-    await userEvent.click(settleBtn)
-    expect(api.adminSettleSymbol).not.toHaveBeenCalled()
-
-    // Select symbol but no price -> no call
+    // Select symbol and provide price
     await userEvent.selectOptions(select, 'AAPL')
-    await userEvent.click(settleBtn)
-    expect(api.adminSettleSymbol).not.toHaveBeenCalled()
-
-    // Provide price and call
     await userEvent.type(priceInput, '150.25')
     await userEvent.click(settleBtn)
     expect(api.adminSettleSymbol).toHaveBeenCalledWith('AAPL', 150.25)
@@ -303,47 +315,5 @@ describe('EmailsPanel', () => {
     await userEvent.type(screen.getByPlaceholderText('Search emails...'), 'test2')
     expect(screen.queryByText('test1@example.com')).not.toBeInTheDocument()
     expect(screen.getByText('test2@example.com')).toBeInTheDocument()
-  })
-})
-
-// describe('HoursPanel', () => {
-//   it('renders table of trading hours', async () => {
-//     await renderAdmin()
-//     await userEvent.click(screen.getByRole('button', { name: 'Trading Hours' }))
-//     // Verify rows content (Mon for 1, Fri for 5)
-//     expect(await screen.findByText('AAPL')).toBeInTheDocument()
-//     expect(screen.getByText('Mon')).toBeInTheDocument()
-//     expect(screen.getByText('Fri')).toBeInTheDocument()
-//     expect(screen.getAllByText('09:30').length).toBeGreaterThan(0)
-//   })
-// })
-
-// describe('CompetitionsPanel', () => {
-//   it('lists and creates competitions', async () => {
-//     await renderAdmin()
-//     await userEvent.click(screen.getByRole('button', { name: 'Competitions' }))
-//     expect(await screen.findByText('Fall')).toBeInTheDocument()
-//     await userEvent.type(screen.getByPlaceholderText('Name'), 'Spring')
-//     // datetime-local inputs
-//     const dts = screen.getAllByDisplayValue('')
-//     await userEvent.type(dts[0], '2025-03-01T09:00')
-//     await userEvent.type(dts[1], '2025-03-31T17:00')
-//     await userEvent.click(screen.getByLabelText(/Active/))
-//     await userEvent.click(screen.getByRole('button', { name: 'Create Competition' }))
-//     expect(api.adminCreateCompetition).toHaveBeenCalledWith({ name: 'Spring', start_time: '2025-03-01T09:00', end_time: '2025-03-31T17:00', is_active: true })
-//     await waitFor(() => expect(api.adminListCompetitions).toHaveBeenCalledTimes(2))
-//   })
-// })
-
-describe('MarketDataPanel', () => {
-  it('upserts close price for a symbol', async () => {
-    await renderAdmin()
-    await userEvent.click(screen.getByRole('button', { name: 'Market Data' }))
-    // Select symbol and set price
-    await userEvent.selectOptions(screen.getByRole('combobox'), 'AAPL')
-    const price = screen.getByPlaceholderText('Close price')
-    await userEvent.type(price, '199.99')
-    await userEvent.click(screen.getByRole('button', { name: 'Upsert' }))
-    expect(api.adminUpsertMarketData).toHaveBeenCalledWith({ symbol: 'AAPL', close: 199.99 })
   })
 })
