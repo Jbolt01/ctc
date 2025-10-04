@@ -45,5 +45,9 @@ if __name__ == "__main__":
     client = RegisterClient(verify_ssl=False)
 
     # Example usage
-    client.register("you@example.com", "You", team_name="Your Team")
+    client.register("ez255@cornell.edu", "Admin", team_name="Admin's Team")
+    print()
+    client.register("ericericzhouzhou@gmail.com", "Eric", team_name="Eric's Team")
+    print()
+    client.register("cireuohz@gmail.com", "Cire", team_name="Cire's Team")
 

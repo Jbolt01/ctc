@@ -4,12 +4,14 @@ set -euo pipefail
 echo "🔧 Checking backend..."
 cd backend
 
-# Activate uv env if needed (assumes uv is installed locally)
 echo "📦 Installing backend deps..."
 uv sync --frozen
 
 echo "🔍 Ruff lint..."
-uv run ruff check .
+uv run ruff check . --output-format=github
+
+echo "🔎 Mypy typecheck..."
+uv run python -m mypy src
 
 echo "🧪 Backend tests..."
 uv run pytest --maxfail=1 --cov=src --cov-report=term-missing --ignore=tests/performance
@@ -20,7 +22,7 @@ echo "🔧 Checking frontend..."
 cd frontend
 
 echo "📦 Installing frontend deps..."
-pnpm install --frozen-lockfile=false
+pnpm install --frozen-lockfile
 
 echo "🔍 ESLint..."
 pnpm lint

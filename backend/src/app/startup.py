@@ -139,7 +139,7 @@ async def seed_demo_data(session: AsyncSession) -> None:
     exch = ExchangeManager()
 
     # Matched trade for AAPL at 150.50 qty 100
-    aapl_buy = await service.place_order(
+    aapl_buy, _ = await service.place_order(
         team_id=team_alpha.id,
         symbol_code="AAPL",
         side="buy",
@@ -148,7 +148,7 @@ async def seed_demo_data(session: AsyncSession) -> None:
         price=150.50,
     )
     await exch.place_and_match(session, db_order=aapl_buy, symbol_code="AAPL")
-    aapl_sell = await service.place_order(
+    aapl_sell, _ = await service.place_order(
         team_id=team_beta.id,
         symbol_code="AAPL",
         side="sell",
@@ -159,7 +159,7 @@ async def seed_demo_data(session: AsyncSession) -> None:
     await exch.place_and_match(session, db_order=aapl_sell, symbol_code="AAPL")
 
     # Leave resting orders to populate order book depth
-    aapl_bid_rest = await service.place_order(
+    aapl_bid_rest, _ = await service.place_order(
         team_id=team_alpha.id,
         symbol_code="AAPL",
         side="buy",
@@ -169,7 +169,7 @@ async def seed_demo_data(session: AsyncSession) -> None:
     )
     await exch.place_and_match(session, db_order=aapl_bid_rest, symbol_code="AAPL")
 
-    aapl_ask_rest = await service.place_order(
+    aapl_ask_rest, _ = await service.place_order(
         team_id=team_beta.id,
         symbol_code="AAPL",
         side="sell",
