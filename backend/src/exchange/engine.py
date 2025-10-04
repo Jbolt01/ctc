@@ -128,7 +128,7 @@ class MatchingEngine:
         self._active_buffer: _EventBuffer | None = None
         self._orders_by_id: dict[str, _OrderMeta] = {}
         self._orders_by_liquibook: dict[int, _OrderMeta] = {}
-        self._team_orders: dict[str, dict[str, set[str]]] = defaultdict(
+        self._team_orders: dict[str, dict[str, set[int]]] = defaultdict(
             lambda: {"buy": set(), "sell": set()}
         )
         self._suppress_cancel: set[str] = set()
@@ -278,14 +278,19 @@ class MatchingEngine:
         price_int = _price_to_int(incoming.price)
         remaining_qty = incoming.quantity
         requeue: list[tuple[_OrderMeta, int]] = []
-        for order_id in candidates:
-            meta = self._orders_by_id.get(order_id)
-            if not meta or not meta.resting:
+        for liquibook_id in candidates:
+            meta = self._orders_by_liquibook.get(liquibook_id)
+            if meta is None:
+                team_set[opposite_side].discard(liquibook_id)
+                continue
+            if not meta.resting:
+                team_set[opposite_side].discard(liquibook_id)
                 continue
             if not _prices_cross(incoming.side, price_int, meta.price_int):
                 continue
             current_open = meta.open_qty
             if current_open <= 0:
+                team_set[opposite_side].discard(liquibook_id)
                 continue
             cancel_qty = min(remaining_qty, current_open)
             if cancel_qty <= 0:
@@ -294,6 +299,7 @@ class MatchingEngine:
                 with self._collect_events():
                     self._book.cancel(meta.liquibook_order)
             else:
+                self._unregister(meta)
                 with self._collect_events():
                     self._book.replace(
                         meta.liquibook_order,
@@ -311,17 +317,19 @@ class MatchingEngine:
             remaining_qty -= cancel_qty
             if remaining_qty <= 0:
                 break
+        if incoming.price is None:
+            incoming.quantity = max(remaining_qty, 0)
         return requeue
 
     def _register(self, meta: _OrderMeta) -> None:
         team_orders = self._team_orders[meta.team_id]
-        team_orders[meta.side].add(meta.order_id)
+        team_orders[meta.side].add(meta.liquibook_id)
 
     def _unregister(self, meta: _OrderMeta) -> None:
         team_orders = self._team_orders.get(meta.team_id)
         if not team_orders:
             return
-        team_orders[meta.side].discard(meta.order_id)
+        team_orders[meta.side].discard(meta.liquibook_id)
         if not team_orders["buy"] and not team_orders["sell"]:
             self._team_orders.pop(meta.team_id, None)
 
