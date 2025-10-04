@@ -22,12 +22,14 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.12", "3.13"]
-        task: [lint, typecheck, test]
+        task: [lint, typecheck, test, perf]
         exclude:
           - python-version: "3.13"
             task: lint
           - python-version: "3.13"
             task: typecheck
+          - python-version: "3.13"
+            task: perf
     defaults:
       run:
         working-directory: backend
@@ -81,6 +83,70 @@ jobs:
           name: backend-coverage-${{ matrix.python-version }}
           path: backend/coverage.xml
           if-no-files-found: ignore
+
+      - name: Run Performance Benchmarks
+        if: matrix.task == 'perf'
+        run: |
+          rm -rf reports/performance
+          mkdir -p reports/performance
+          uv run pytest tests/performance -m performance \
+            --benchmark-only \
+            --benchmark-json=reports/performance/exchange.json \
+            --benchmark-columns=mean,stddev,median,ops,rounds \
+            --benchmark-min-rounds=3
+
+      - name: Publish Performance Summary
+        if: matrix.task == 'perf'
+        env:
+          SUMMARY_PATH: reports/performance/summary.md
+        run: |
+          uv run python - <<'PY'
+from __future__ import annotations
+
+import json
+import os
+import pathlib
+
+report_path = pathlib.Path("reports/performance/exchange.json")
+payload = json.loads(report_path.read_text())
+
+lines: list[str] = []
+lines.append("| Benchmark | Mean (ms) | Median (ms) | Ops/s | Rounds |")
+lines.append("| --- | --- | --- | --- | --- |")
+for bench in payload.get("benchmarks", []):
+    stats = bench.get("stats", {})
+    lines.append(
+        f"| {bench.get('name')} | {stats.get('mean', 0) * 1000:.3f} | "
+        f"{stats.get('median', 0) * 1000:.3f} | {stats.get('ops', 0):.1f} | "
+        f"{stats.get('rounds', 0)} |"
+    )
+
+for bench in payload.get("benchmarks", []):
+    extra = bench.get("extra_info") or {}
+    if not extra:
+        continue
+    lines.append("")
+    lines.append(f"### {bench.get('name')}")
+    for key in sorted(extra):
+        value = extra[key]
+        if isinstance(value, float):
+            lines.append(f"- **{key}**: {value:.6f}")
+        else:
+            lines.append(f"- **{key}**: {value}")
+
+path = pathlib.Path(os.environ["SUMMARY_PATH"])
+path.write_text("\n".join(lines) + "\n")
+print(path.read_text())
+PY
+          cat "${SUMMARY_PATH}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Performance Benchmarks
+        if: matrix.task == 'perf'
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-performance-benchmarks
+          path: backend/reports/performance
+          if-no-files-found: error
 
   frontend:
     name: Frontend (${{ matrix.task }})
