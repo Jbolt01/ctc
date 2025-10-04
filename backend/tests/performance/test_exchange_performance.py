@@ -5,17 +5,22 @@ import random
 import statistics
 import time
 import uuid
+from collections.abc import Generator, Sequence
 from dataclasses import dataclass
-from typing import Generator, Sequence
 
 import pytest
 from pytest_benchmark.fixture import BenchmarkFixture
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
-from src.db.models import Base, Order as OrderModel, Symbol, Team
+from src.db.models import Base, Symbol, Team
+from src.db.models import Order as OrderModel
 from src.exchange.engine import MatchingEngine, SimpleOrder
 from src.exchange.manager import ExchangeManager
-
 
 RANDOM_SEED = 0xC0FFEE
 
@@ -96,7 +101,10 @@ def _build_incoming_specs(
         side = "buy" if rng.random() < 0.5 else "sell"
         is_market = rng.random() < 0.25
         variance = rng.random() * price_variance
-        price = None if is_market else round(price_start + (variance if side == "buy" else -variance), 2)
+        price = None
+        if not is_market:
+            price_offset = variance if side == "buy" else -variance
+            price = round(price_start + price_offset, 2)
         quantity = rng.randint(5, 800)
         specs.append(
             OrderSpec(
@@ -165,7 +173,11 @@ def _compute_latency_stats(latencies: list[float]) -> dict[str, float]:
     if not latencies:
         return {"count": 0.0, "p50_ms": 0.0, "p95_ms": 0.0, "max_ms": 0.0}
     latencies_ms = [value * 1_000 for value in latencies]
-    p95 = statistics.quantiles(latencies_ms, n=100, method="inclusive")[94] if len(latencies_ms) >= 20 else max(latencies_ms)
+    if len(latencies_ms) >= 20:
+        quantiles = statistics.quantiles(latencies_ms, n=100, method="inclusive")
+        p95 = quantiles[94]
+    else:
+        p95 = max(latencies_ms)
     return {
         "count": float(len(latencies_ms)),
         "p50_ms": statistics.median(latencies_ms),
