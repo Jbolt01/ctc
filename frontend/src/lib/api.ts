@@ -161,12 +161,6 @@ export function adminListHours() {
 export function adminCreateHours(payload: { symbol: string; day_of_week: number; open_time: string; close_time: string; is_active?: boolean }) {
   return apiPost(`/api/v1/admin/hours`, payload);
 }
-export function adminListTeams() {
-  return apiGet<Array<{ id: string; name: string }>>(`/api/v1/admin/teams`);
-}
-export function adminCreateTeam(payload: { name: string }) {
-  return apiPost(`/api/v1/admin/teams`, payload);
-}
 export function adminListCompetitions() {
   return apiGet<Array<{ id: string; name: string; start_time: string; end_time: string; is_active: boolean }>>(`/api/v1/admin/competitions`);
 }
@@ -175,12 +169,42 @@ export function adminCreateCompetition(payload: { name: string; start_time: stri
 }
 
 // Admin: Users
-export type AdminUser = { id: string; email: string; name: string; is_admin: boolean };
+export type AdminUser = { id: string; email: string; name: string; is_admin: boolean; team_name: string | null; is_disabled: boolean };
 export function adminListUsers() {
   return apiGet<AdminUser[]>(`/api/v1/admin/users`);
 }
 export function adminSetUserAdmin(userId: string, is_admin: boolean) {
   return apiPost(`/api/v1/admin/users/${userId}/admin`, { is_admin });
+}
+export function adminDisableUser(userId: string) {
+  return apiPost(`/api/v1/admin/users/${userId}/disable`, {});
+}
+export function adminEnableUser(userId: string) {
+  return apiPost(`/api/v1/admin/users/${userId}/enable`, {});
+}
+export function adminDeleteUser(userId: string) {
+  return apiDelete(`/api/v1/admin/users/${userId}`);
+}
+
+// Admin: Teams
+export type AdminTeam = { id: string; name: string; join_code: string; member_count: number };
+export function adminListTeams() {
+  return apiGet<AdminTeam[]>(`/api/v1/admin/teams`);
+}
+export function adminCreateTeam(payload: { name: string }) {
+  return apiPost(`/api/v1/admin/teams`, payload);
+}
+export type TeamMemberAdmin = { id: string; email: string; name: string; role: string; is_disabled: boolean };
+export type TeamApiKeyAdmin = { id: string; name: string; created_at: string; last_used?: string | null; is_active: boolean };
+export type AdminTeamDetails = { id: string; name: string; join_code: string; members: TeamMemberAdmin[]; api_keys: TeamApiKeyAdmin[] };
+export function adminGetTeam(teamId: string) {
+  return apiGet<AdminTeamDetails>(`/api/v1/admin/teams/${teamId}`);
+}
+export function adminDisableTeamApiKey(keyId: string) {
+  return apiPost(`/api/v1/admin/teams/api-keys/${keyId}/disable`, {});
+}
+export function adminEnableTeamApiKey(keyId: string) {
+  return apiPost(`/api/v1/admin/teams/api-keys/${keyId}/enable`, {});
 }
 
 // Admin: Allowed Emails

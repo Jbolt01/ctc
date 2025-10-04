@@ -1227,7 +1227,6 @@ async def reset_users(session: DbSession) -> dict[str, str]:
     await session.execute(delete(UserModel))
     # Optionally clear competitions as well
     await session.execute(delete(CompetitionModel))
-    await session.execute(delete(AllowedEmail))
     await session.commit()
     return {"status": "ok"}
 
@@ -1385,6 +1384,13 @@ class TeamIn(BaseModel):
     name: str
 
 
+class AdminTeamOut(BaseModel):
+    id: str
+    name: str
+    join_code: str
+    member_count: int
+
+
 @admin_router.post("/teams")
 async def create_team_admin(payload: TeamIn, session: DbSession) -> dict[str, str]:
     if await session.scalar(select(TeamModel).where(TeamModel.name == payload.name)):
@@ -1395,10 +1401,102 @@ async def create_team_admin(payload: TeamIn, session: DbSession) -> dict[str, st
     return {"id": str(team.id)}
 
 
-@admin_router.get("/teams")
-async def list_teams(session: DbSession) -> list[dict[str, Any]]:
-    rows = (await session.execute(select(TeamModel.id, TeamModel.name, TeamModel.join_code))).all()
-    return [{"id": str(r.id), "name": r.name, "join_code": r.join_code} for r in rows]
+@admin_router.get("/teams", response_model=list[AdminTeamOut])
+async def list_teams(session: DbSession) -> list[AdminTeamOut]:
+    from sqlalchemy import func
+
+    member_count_subq = (
+        select(func.count(TeamMemberModel.user_id))
+        .where(TeamMemberModel.team_id == TeamModel.id)
+        .correlate(TeamModel)
+        .as_scalar()
+    )
+    stmt = select(
+        TeamModel.id,
+        TeamModel.name,
+        TeamModel.join_code,
+        member_count_subq.label("member_count"),
+    )
+    rows = (await session.execute(stmt)).all()
+    return [
+        AdminTeamOut(
+            id=str(r.id),
+            name=r.name,
+            join_code=r.join_code,
+            member_count=r.member_count,
+        )
+        for r in rows
+    ]
+
+
+class TeamMemberAdminOut(BaseModel):
+    id: str
+    email: str
+    name: str
+    role: str
+    is_disabled: bool
+
+
+class TeamApiKeyAdminOut(BaseModel):
+    id: str
+    name: str
+    created_at: datetime
+    last_used: datetime | None = None
+    is_active: bool
+
+
+class AdminTeamDetailsOut(BaseModel):
+    id: str
+    name: str
+    join_code: str
+    members: list[TeamMemberAdminOut]
+    api_keys: list[TeamApiKeyAdminOut]
+
+
+@admin_router.get("/teams/{team_id}", response_model=AdminTeamDetailsOut)
+async def admin_get_team(team_id: str, session: DbSession) -> AdminTeamDetailsOut:
+    team = await _get_team_by_id(session, team_id)
+
+    # Get members
+    member_rows = (await session.execute(
+        select(UserModel, TeamMemberModel.role)
+        .join(TeamMemberModel, UserModel.id == TeamMemberModel.user_id)
+        .where(TeamMemberModel.team_id == team.id)
+    )).all()
+
+    members_out: list[TeamMemberAdminOut] = []
+    for user, role in member_rows:
+        keys = (await session.execute(select(APIKeyModel.is_active)
+                                      .where(APIKeyModel.user_id == user.id))).scalars().all()
+        is_disabled = bool(keys) and all(not k for k in keys)
+        members_out.append(TeamMemberAdminOut(
+            id=str(user.id),
+            email=user.email,
+            name=user.name,
+            role=role,
+            is_disabled=is_disabled
+        ))
+
+    # Get API keys for the team
+    key_rows = (await session.execute(
+        select(APIKeyModel).where(APIKeyModel.team_id == team.id)
+    )).scalars().all()
+
+    return AdminTeamDetailsOut(
+        id=str(team.id),
+        name=team.name,
+        join_code=team.join_code,
+        members=members_out,
+        api_keys=[
+            TeamApiKeyAdminOut(
+                id=str(k.id),
+                name=k.name,
+                created_at=k.created_at,
+                last_used=k.last_used,
+                is_active=k.is_active,
+            ) for k in key_rows
+        ]
+    )
 
 
 class CompetitionIn(BaseModel):
@@ -1421,6 +1519,42 @@ async def create_competition(payload: CompetitionIn, session: DbSession) -> dict
     session.add(row)
     await session.commit()
     return {"id": str(row.id)}
+
+
+@admin_router.post("/teams/api-keys/{key_id}/disable")
+async def admin_disable_team_api_key(key_id: str, session: DbSession) -> dict[str, str]:
+    _kid: _Any
+    try:
+        _kid = _uuid.UUID(key_id)
+    except Exception:
+        _kid = key_id
+
+    key = await session.get(APIKeyModel, _kid)
+    if not key:
+        raise HTTPException(status_code=404, detail="API key not found")
+
+    key.is_active = False
+    session.add(key)
+    await session.commit()
+    return {"status": "ok"}
+
+
+@admin_router.post("/teams/api-keys/{key_id}/enable")
+async def admin_enable_team_api_key(key_id: str, session: DbSession) -> dict[str, str]:
+    _kid: _Any
+    try:
+        _kid = _uuid.UUID(key_id)
+    except Exception:
+        _kid = key_id
+
+    key = await session.get(APIKeyModel, _kid)
+    if not key:
+        raise HTTPException(status_code=404, detail="API key not found")
+
+    key.is_active = True
+    session.add(key)
+    await session.commit()
+    return {"status": "ok"}
 
 
 @admin_router.get("/competitions")
@@ -1579,6 +1713,8 @@ class UserAdminOut(BaseModel):
     email: str
     name: str
     is_admin: bool
+    team_name: str | None
+    is_disabled: bool
 
 
 class SetAdminIn(BaseModel):
@@ -1587,30 +1723,46 @@ class SetAdminIn(BaseModel):
 
 @admin_router.get("/users", response_model=list[UserAdminOut])
 async def admin_list_users(session: DbSession) -> list[UserAdminOut]:
-    # Determine admin if any API key for user's teams is admin
-    rows = (
-        await session.execute(select(UserModel.id, UserModel.email, UserModel.name))
-    ).all()
-    out: list[UserAdminOut] = []
-    for r in rows:
-        teams = (
-            await session.execute(
-                select(TeamMemberModel.team_id).where(TeamMemberModel.user_id == r.id)
-            )
-        ).scalars().all()
-        if not teams:
-            is_admin = False
-        else:
-            admin_key = await session.scalar(
-                select(APIKeyModel.id).where(
-                    APIKeyModel.team_id.in_(teams), APIKeyModel.is_admin.is_(True)
-                )
-            )
-            is_admin = admin_key is not None
-        out.append(
-            UserAdminOut(id=str(r.id), email=r.email, name=r.name, is_admin=is_admin)
+    from sqlalchemy import and_, case, func
+
+    is_admin_expr = func.max(case((APIKeyModel.is_admin, 1), else_=0)).label("is_admin")
+
+    active_key_count = func.sum(case((APIKeyModel.is_active, 1), else_=0))
+
+    is_disabled_expr = and_(
+        func.count(APIKeyModel.id) > 0, active_key_count == 0
+    ).label("is_disabled")
+
+    stmt = (
+        select(
+            UserModel.id,
+            UserModel.email,
+            UserModel.name,
+            func.min(TeamModel.name).label("team_name"),  # Pick one team name if multiple
+            is_admin_expr,
+            is_disabled_expr,
         )
-    return out
+        .outerjoin(TeamMemberModel, UserModel.id == TeamMemberModel.user_id)
+        .outerjoin(TeamModel, TeamMemberModel.team_id == TeamModel.id)
+        .outerjoin(APIKeyModel, UserModel.id == APIKeyModel.user_id)
+        .group_by(UserModel.id)
+        .order_by(UserModel.created_at)
+    )
+
+    rows = (await session.execute(stmt)).all()
+
+    return [
+        UserAdminOut(
+            id=str(r.id),
+            email=r.email,
+            name=r.name,
+            is_admin=bool(r.is_admin),
+            team_name=r.team_name,
+            is_disabled=r.is_disabled,
+        )
+        for r in rows
+    ]
+
 
 
 @admin_router.post("/users/{user_id}/admin")
@@ -1642,6 +1794,65 @@ async def admin_set_user_admin(
             session.add(k)
         await session.commit()
     return {"status": "ok"}
+
+
+@admin_router.post("/users/{user_id}/disable")
+async def admin_disable_user(user_id: str, session: DbSession) -> dict[str, str]:
+    _uid: _Any
+    try:
+        _uid = _uuid.UUID(user_id)
+    except Exception:
+        _uid = user_id
+
+    user = await session.get(UserModel, _uid)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    await session.execute(
+        update(APIKeyModel).where(APIKeyModel.user_id == user.id).values(is_active=False)
+    )
+    await session.commit()
+    return {"status": "ok"}
+
+
+@admin_router.post("/users/{user_id}/enable")
+async def admin_enable_user(user_id: str, session: DbSession) -> dict[str, str]:
+    _uid: _Any
+    try:
+        _uid = _uuid.UUID(user_id)
+    except Exception:
+        _uid = user_id
+
+    user = await session.get(UserModel, _uid)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    await session.execute(
+        update(APIKeyModel).where(APIKeyModel.user_id == user.id).values(is_active=True)
+    )
+    await session.commit()
+    return {"status": "ok"}
+
+
+@admin_router.delete("/users/{user_id}")
+async def admin_delete_user(user_id: str, session: DbSession) -> dict[str, str]:
+    _uid: _Any
+    try:
+        _uid = _uuid.UUID(user_id)
+    except Exception:
+        _uid = user_id
+
+    user = await session.get(UserModel, _uid)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    await session.execute(delete(APIKeyModel).where(APIKeyModel.user_id == user.id))
+    await session.execute(delete(TeamMemberModel).where(TeamMemberModel.user_id == user.id))
+    await session.execute(delete(AllowedEmail).where(AllowedEmail.user_id == user.id))
+
+    await session.delete(user)
+    await session.commit()
+    return {"status": "deleted"}
 
 
 app.include_router(health_router)

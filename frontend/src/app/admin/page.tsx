@@ -7,6 +7,9 @@ import clsx from 'clsx';
 import {
   adminListUsers,
   adminSetUserAdmin,
+  adminDisableUser,
+  adminEnableUser,
+  adminDeleteUser,
   adminListTeams,
   adminCreateTeam,
   adminListAllowedEmails,
@@ -239,22 +242,24 @@ function EmailsPanel() {
 }
 
 function UsersPanel() {
-  const [users, setUsers] = useState<Array<{ id: string; email: string; name: string; is_admin: boolean }>>([]);
+  const [users, setUsers] = useState<Array<{ id: string; email: string; name: string; is_admin: boolean; team_name: string | null; is_disabled: boolean }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
 
+  const loadUsers = async () => {
+    try {
+      const u = await adminListUsers();
+      setUsers(u);
+    } catch (e: any) {
+      setError(e?.message || 'Failed to load users');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    (async () => {
-      try {
-        const u = await adminListUsers();
-        setUsers(u);
-      } catch (e: any) {
-        setError(e?.message || 'Failed to load users');
-      } finally {
-        setLoading(false);
-      }
-    })();
+    loadUsers();
   }, []);
 
   const toggleAdmin = async (id: string, checked: boolean) => {
@@ -264,6 +269,23 @@ function UsersPanel() {
       await adminSetUserAdmin(id, checked);
     } catch {
       setUsers(prev);
+    }
+  };
+
+  const disableUser = async (id: string) => {
+    await adminDisableUser(id);
+    await loadUsers();
+  };
+
+  const enableUser = async (id: string) => {
+    await adminEnableUser(id);
+    await loadUsers();
+  };
+
+  const deleteUser = async (id: string) => {
+    if (window.confirm('Are you sure you want to delete this user?')) {
+      await adminDeleteUser(id);
+      await loadUsers();
     }
   };
 
@@ -294,17 +316,25 @@ function UsersPanel() {
             <div>
               <div className="text-white font-mono font-bold">{u.name}</div>
               <div className="text-gray-400 font-mono text-sm">{u.email}</div>
+              <div className="text-gray-500 font-mono text-xs">{u.team_name}</div>
             </div>
-            <label className="inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={u.is_admin}
-                onChange={e => toggleAdmin(u.id, e.target.checked)}
-                className="sr-only peer"
-              />
-              <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:bg-cyan-600 transition-all" />
-              <span className="ml-3 text-sm font-mono text-gray-300">Admin</span>
-            </label>
+            <div className="flex items-center gap-4">
+              {u.is_disabled && <span className="text-red-400 font-mono text-xs">Disabled</span>}
+              <button onClick={() => u.is_disabled ? enableUser(u.id) : disableUser(u.id)} className="text-xs font-mono text-yellow-400 hover:underline">
+                {u.is_disabled ? 'Enable' : 'Disable'}
+              </button>
+              <button onClick={() => deleteUser(u.id)} className="text-xs font-mono text-red-400 hover:underline">Delete</button>
+              <label className="inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={u.is_admin}
+                  onChange={e => toggleAdmin(u.id, e.target.checked)}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:bg-cyan-600 transition-all" />
+                <span className="ml-3 text-sm font-mono text-gray-300">Admin</span>
+              </label>
+            </div>
           </div>
         ))}
       </div>
@@ -456,7 +486,7 @@ function SymbolsPanel() {
 }
 
 function TeamsPanel() {
-  const [teams, setTeams] = useState<Array<{ id: string; name: string; join_code?: string }>>([]);
+  const [teams, setTeams] = useState<Array<{ id: string; name: string; join_code?: string; member_count: number }>>([]);
   const [name, setName] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const load = async () => setTeams(await adminListTeams());
@@ -490,7 +520,8 @@ function TeamsPanel() {
       <div className="grid gap-2">
         {filteredTeams.map(t => (
           <div key={t.id} className="bg-gray-800/50 border border-gray-700 rounded px-3 py-2 text-white font-mono flex items-center justify-between">
-            <div className="font-bold">{t.name}</div>
+            <Link href={`/admin/teams/${t.id}`} className="font-bold hover:underline">{t.name}</Link>
+            <div className="text-xs text-gray-400">{t.member_count} members</div>
             {t.join_code && (
               <div className="text-xs text-cyan-300">
                 Join code: <span className="font-mono tracking-wider">{t.join_code}</span>

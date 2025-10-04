@@ -1,4 +1,4 @@
-import { fetchSymbols, fetchPositions, fetchAllOrders, placeOrder, cancelOrder, fetchTrades, fetchMarketTrades, adminListAllowedEmails, adminAddAllowedEmail, adminDeleteAllowedEmail } from './api'
+import { fetchSymbols, fetchPositions, fetchAllOrders, placeOrder, cancelOrder, fetchTrades, fetchMarketTrades, adminListAllowedEmails, adminAddAllowedEmail, adminDeleteAllowedEmail, adminDisableUser, adminEnableUser, adminDeleteUser, adminGetTeam, adminDisableTeamApiKey, adminEnableTeamApiKey } from './api'
 
 describe('api library', () => {
   beforeEach(() => {
@@ -61,4 +61,29 @@ describe('api library', () => {
     expect(del.url).toContain('/api/v1/admin/allowed-emails/test%40example.com');
     expect(del.init.method).toBe('DELETE');
   });
-})
+
+  it('handles new admin user and team functions', async () => {
+    const disableUser = (await adminDisableUser('user1')) as any;
+    expect(disableUser.url).toContain('/api/v1/admin/users/user1/disable');
+    expect(disableUser.init.method).toBe('POST');
+
+    const enableUser = (await adminEnableUser('user1')) as any;
+    expect(enableUser.url).toContain('/api/v1/admin/users/user1/enable');
+    expect(enableUser.init.method).toBe('POST');
+
+    const deleteUser = (await adminDeleteUser('user1')) as any;
+    expect(deleteUser.url).toContain('/api/v1/admin/users/user1');
+    expect(deleteUser.init.method).toBe('DELETE');
+
+    const getTeam = (await adminGetTeam('team1')) as any;
+    expect(getTeam.url).toContain('/api/v1/admin/teams/team1');
+
+    const disableKey = (await adminDisableTeamApiKey('key1')) as any;
+    expect(disableKey.url).toContain('/api/v1/admin/teams/api-keys/key1/disable');
+    expect(disableKey.init.method).toBe('POST');
+
+    const enableKey = (await adminEnableTeamApiKey('key1')) as any;
+    expect(enableKey.url).toContain('/api/v1/admin/teams/api-keys/key1/enable');
+    expect(enableKey.init.method).toBe('POST');
+  });
+});

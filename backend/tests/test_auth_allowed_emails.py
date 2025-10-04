@@ -170,7 +170,7 @@ def test_non_admin_cannot_manage_allowed_emails(test_app: TestClient, api_keys) 
     assert res.status_code == 403
 
 
-def test_reset_users_clears_allowed_emails(test_app: TestClient, admin_key: str) -> None:
+def test_reset_users_no_clears_allowed_emails(test_app: TestClient, admin_key: str) -> None:
     asyncio.run(_add_allowed_email("test@example.com"))
     allowed = asyncio.run(_get_allowed_emails())
     assert "test@example.com" in allowed
@@ -179,7 +179,7 @@ def test_reset_users_clears_allowed_emails(test_app: TestClient, admin_key: str)
     assert res.status_code == 200
 
     allowed = asyncio.run(_get_allowed_emails())
-    assert allowed == []
+    assert "test@example.com" in allowed
 
 
 def test_startup_seeding_from_env(test_app: TestClient) -> None:

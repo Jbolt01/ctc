@@ -12,8 +12,14 @@ jest.mock('next/navigation', () => ({
 jest.mock('../../lib/api', () => ({
   adminListUsers: jest.fn(),
   adminSetUserAdmin: jest.fn(),
+  adminDisableUser: jest.fn(),
+  adminEnableUser: jest.fn(),
+  adminDeleteUser: jest.fn(),
   adminListTeams: jest.fn(),
   adminCreateTeam: jest.fn(),
+  adminGetTeam: jest.fn(),
+  adminDisableTeamApiKey: jest.fn(),
+  adminEnableTeamApiKey: jest.fn(),
   adminListAllowedEmails: jest.fn(),
   adminAddAllowedEmail: jest.fn(),
   adminDeleteAllowedEmail: jest.fn(),
@@ -45,12 +51,12 @@ beforeEach(() => {
   jest.clearAllMocks()
   // Default happy mock values
   api.adminListUsers.mockResolvedValue([
-    { id: 'u1', email: 'a@example.com', name: 'Alice', is_admin: false },
-    { id: 'u2', email: 'b@example.com', name: 'Bob', is_admin: true },
+    { id: 'u1', email: 'a@example.com', name: 'Alice', is_admin: false, team_name: 'Team Alpha', is_disabled: false },
+    { id: 'u2', email: 'b@example.com', name: 'Bob', is_admin: true, team_name: 'Team Beta', is_disabled: true },
   ])
   api.adminListTeams.mockResolvedValue([
-    { id: 't1', name: 'Alpha' },
-    { id: 't2', name: 'Beta' },
+    { id: 't1', name: 'Alpha', member_count: 1, join_code: 'ABC' },
+    { id: 't2', name: 'Beta', member_count: 2, join_code: 'DEF' },
   ])
   // api.adminListHours.mockResolvedValue([
   //   { id: 'h1', symbol: 'AAPL', day_of_week: 1, open_time: '09:30', close_time: '16:00', is_active: true },
@@ -77,6 +83,12 @@ beforeEach(() => {
   api.adminListAllowedEmails.mockResolvedValue(['test1@example.com', 'test2@example.com'])
   api.adminAddAllowedEmail.mockResolvedValue(undefined)
   api.adminDeleteAllowedEmail.mockResolvedValue(undefined)
+  api.adminDisableUser.mockResolvedValue(undefined)
+  api.adminEnableUser.mockResolvedValue(undefined)
+  api.adminDeleteUser.mockResolvedValue(undefined)
+  api.adminGetTeam.mockResolvedValue({ id: 't1', name: 'Alpha', join_code: 'ABC', members: [], api_keys: [] })
+  api.adminDisableTeamApiKey.mockResolvedValue(undefined)
+  api.adminEnableTeamApiKey.mockResolvedValue(undefined)
 })
 
 describe('AdminPage authorization and navigation', () => {
@@ -111,17 +123,31 @@ describe('AdminPage authorization and navigation', () => {
 })
 
 describe('UsersPanel', () => {
-  it('loads and displays users, allows toggling admin', async () => {
+  it('loads and displays users, allows toggling admin and status', async () => {
     await renderAdmin()
     // Two users rendered
     expect(await screen.findByText('Alice')).toBeInTheDocument()
     expect(screen.getByText('Bob')).toBeInTheDocument()
+
+    // Team name is displayed
+    expect(screen.getByText('Team Alpha')).toBeInTheDocument()
 
     // Toggle Alice -> true
     const toggle = screen.getAllByRole('checkbox')[0]
     expect(toggle).not.toBeChecked()
     await userEvent.click(toggle)
     expect(api.adminSetUserAdmin).toHaveBeenCalledWith('u1', true)
+
+    // Disable user
+    const disableBtn = screen.getAllByRole('button', { name: 'Disable' })[0]
+    await userEvent.click(disableBtn)
+    expect(api.adminDisableUser).toHaveBeenCalledWith('u1')
+
+    // Delete user
+    window.confirm = jest.fn(() => true) // auto-confirm
+    const deleteBtn = screen.getAllByRole('button', { name: 'Delete' })[0]
+    await userEvent.click(deleteBtn)
+    expect(api.adminDeleteUser).toHaveBeenCalledWith('u1')
   })
 
   it('rolls back toggle on API error', async () => {
@@ -226,10 +252,16 @@ describe('SymbolsPanel', () => {
 })
 
 describe('TeamsPanel', () => {
-  it('lists and creates teams', async () => {
+  it('lists and creates teams, shows member count, and links to details', async () => {
     await renderAdmin()
     await userEvent.click(screen.getByRole('button', { name: 'Teams' }))
     expect(await screen.findByText('Alpha')).toBeInTheDocument()
+    expect(screen.getByText('1 members')).toBeInTheDocument()
+
+    // Check link
+    const link = screen.getByText('Alpha')
+    expect(link.closest('a')).toHaveAttribute('href', '/admin/teams/t1')
+
     const nameInput = screen.getByPlaceholderText('Team name')
     await userEvent.type(nameInput, 'Gamma')
     await userEvent.click(screen.getByRole('button', { name: 'Create' }))
