@@ -39,6 +39,8 @@ services:
       ADMIN_EMAILS: ${ADMIN_EMAILS:-cornellquantfund@gmail.com,ez255@cornell.edu}
       SEED_ON_STARTUP: ${SEED_ON_STARTUP:-false}
       ALLOW_ANY_API_KEY: ${ALLOW_ANY_API_KEY:-false}
+      ALLOW_ALL_EMAILS: ${ALLOW_ALL_EMAILS:-false}
+      ALLOWED_EMAILS: ${ALLOWED_EMAILS}
     volumes:
       - ./backend/src:/app/src
     restart: unless-stopped

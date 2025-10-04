@@ -8,9 +8,27 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.orders import OrderService
-from src.db.models import Position, Symbol, Team, TradingHours
+from src.db.models import AllowedEmail, Position, Symbol, Team, TradingHours
 from src.db.session import SessionLocal
 from src.exchange.manager import ExchangeManager
+
+
+async def seed_allowed_emails(session: AsyncSession) -> None:
+    from src.app.config import settings
+
+    emails = settings.allowed_emails
+    if not emails:
+        return
+
+    # Find existing emails to avoid duplicates
+    existing_rows = await session.execute(
+        select(AllowedEmail.email).where(AllowedEmail.email.in_(emails))
+    )
+    existing_emails = {row[0] for row in existing_rows}
+
+    if emails:
+        session.add_all([AllowedEmail(email=email) for email in emails if email not in existing_emails])
+        await session.commit()
 
 
 async def seed_initial_symbols(session: AsyncSession) -> None:
@@ -36,6 +54,9 @@ def attach_lifecycle(app: FastAPI) -> None:
             async with SessionLocal() as session:
                 await seed_initial_symbols(session)
                 await seed_demo_data(session)
+
+        async with SessionLocal() as session:
+            await seed_allowed_emails(session)
 
 
 async def _ensure_team(session: AsyncSession, name: str) -> Team:

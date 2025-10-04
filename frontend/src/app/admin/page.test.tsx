@@ -14,6 +14,9 @@ jest.mock('../../lib/api', () => ({
   adminSetUserAdmin: jest.fn(),
   adminListTeams: jest.fn(),
   adminCreateTeam: jest.fn(),
+  adminListAllowedEmails: jest.fn(),
+  adminAddAllowedEmail: jest.fn(),
+  adminDeleteAllowedEmail: jest.fn(),
   // adminListHours: jest.fn(),
   // adminListCompetitions: jest.fn(),
   // adminCreateCompetition: jest.fn(),
@@ -71,6 +74,9 @@ beforeEach(() => {
   api.adminStartSymbols.mockResolvedValue(undefined)
   api.adminSettleSymbol.mockResolvedValue(undefined)
   api.adminUpsertMarketData.mockResolvedValue(undefined)
+  api.adminListAllowedEmails.mockResolvedValue(['test1@example.com', 'test2@example.com'])
+  api.adminAddAllowedEmail.mockResolvedValue(undefined)
+  api.adminDeleteAllowedEmail.mockResolvedValue(undefined)
 })
 
 describe('AdminPage authorization and navigation', () => {
@@ -91,6 +97,11 @@ describe('AdminPage authorization and navigation', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Teams' }))
     expect(screen.getByRole('heading', { level: 2, name: 'Teams' })).toBeInTheDocument()
     expect(screen.getByText('Create teams and review existing')).toBeInTheDocument()
+
+    // Switch to Emails
+    await userEvent.click(screen.getByRole('button', { name: 'Emails' }))
+    expect(screen.getByRole('heading', { level: 2, name: 'Allowed Emails' })).toBeInTheDocument()
+    expect(screen.getByText('Manage registration whitelist')).toBeInTheDocument()
 
     // Switch to Symbols
     await userEvent.click(screen.getByRole('button', { name: 'Symbols' }))
@@ -121,6 +132,13 @@ describe('UsersPanel', () => {
     await userEvent.click(toggle)
     // Optimistic checked then rolled back
     await waitFor(() => expect(toggle).not.toBeChecked())
+  })
+
+  it('filters users by search term', async () => {
+    await renderAdmin()
+    await userEvent.type(screen.getByPlaceholderText('Search by name or email...'), 'alice')
+    expect(screen.queryByText('Bob')).not.toBeInTheDocument()
+    expect(screen.getByText('Alice')).toBeInTheDocument()
   })
 })
 
@@ -217,6 +235,42 @@ describe('TeamsPanel', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Create' }))
     expect(api.adminCreateTeam).toHaveBeenCalledWith({ name: 'Gamma' })
     await waitFor(() => expect(api.adminListTeams).toHaveBeenCalledTimes(2))
+  })
+
+  it('filters teams by search term', async () => {
+    await renderAdmin()
+    await userEvent.click(screen.getByRole('button', { name: 'Teams' }))
+    await userEvent.type(screen.getByPlaceholderText('Search by name...'), 'alpha')
+    expect(screen.queryByText('Beta')).not.toBeInTheDocument()
+    expect(screen.getByText('Alpha')).toBeInTheDocument()
+  })
+})
+
+describe('EmailsPanel', () => {
+  it('lists, adds, deletes, and filters emails', async () => {
+    await renderAdmin()
+    await userEvent.click(screen.getByRole('button', { name: 'Emails' }))
+
+    // List
+    expect(await screen.findByText('test1@example.com')).toBeInTheDocument()
+    expect(screen.getByText('test2@example.com')).toBeInTheDocument()
+
+    // Add
+    await userEvent.type(screen.getByPlaceholderText('new.email@example.com'), 'test3@example.com')
+    await userEvent.click(screen.getByRole('button', { name: 'Add' }))
+    expect(api.adminAddAllowedEmail).toHaveBeenCalledWith('test3@example.com')
+    await waitFor(() => expect(api.adminListAllowedEmails).toHaveBeenCalledTimes(2))
+
+    // Delete
+    const deleteButtons = screen.getAllByRole('button', { name: 'Remove' })
+    await userEvent.click(deleteButtons[0])
+    expect(api.adminDeleteAllowedEmail).toHaveBeenCalledWith('test1@example.com')
+    await waitFor(() => expect(api.adminListAllowedEmails).toHaveBeenCalledTimes(3))
+
+    // Filter
+    await userEvent.type(screen.getByPlaceholderText('Search emails...'), 'test2')
+    expect(screen.queryByText('test1@example.com')).not.toBeInTheDocument()
+    expect(screen.getByText('test2@example.com')).toBeInTheDocument()
   })
 })
 

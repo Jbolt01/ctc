@@ -19,6 +19,7 @@ from src.app.deps import RequireAPIKey, require_admin
 from src.app.startup import attach_lifecycle
 from src.core.orders import OrderService
 from src.db.models import APIKey as APIKeyModel
+from src.db.models import AllowedEmail
 from src.db.models import MarketData as MarketDataModel
 from src.db.models import Order as OrderModel
 from src.db.models import Position as PositionModel
@@ -386,6 +387,18 @@ async def register(request: LoginRequest, session: DbSession) -> LoginResponse:
     if not sub or not email or not name:
         raise HTTPException(status_code=400, detail="Missing identity fields")
 
+    # Check if email is allowed to register
+    if not settings.allow_all_emails:
+        is_admin = email.lower() in settings.admin_emails
+        if not is_admin:
+            allowed_email_rec = await session.scalar(
+                select(AllowedEmail).where(AllowedEmail.email == email.lower())
+            )
+            if not allowed_email_rec:
+                raise HTTPException(
+                    status_code=403, detail="Email not allowed to register, please use correct email"
+                )
+
     # Check if user already exists
     existing_user = await session.scalar(
         select(UserModel).where(UserModel.openid_sub == sub)
@@ -398,6 +411,15 @@ async def register(request: LoginRequest, session: DbSession) -> LoginResponse:
     user = UserModel(email=email, name=name, openid_sub=sub)
     session.add(user)
     await session.flush()  # Get the user ID
+
+    # Link user to allowed email if applicable
+    if not settings.allow_all_emails and email.lower() not in settings.admin_emails:
+        allowed_email_rec = await session.scalar(
+            select(AllowedEmail).where(AllowedEmail.email == email.lower())
+        )
+        if allowed_email_rec:
+            allowed_email_rec.user_id = user.id
+            session.add(allowed_email_rec)
 
     # Determine onboarding action
     action = (request.team_action or "create").lower()
@@ -1133,6 +1155,42 @@ async def delete_symbol(symbol: str, session: DbSession) -> dict[str, str]:
     return {"status": "deleted"}
 
 
+# Admin: Allowed Emails
+class AllowedEmailIn(BaseModel):
+    email: str
+
+
+@admin_router.get("/allowed-emails", response_model=list[str])
+async def admin_list_allowed_emails(session: DbSession) -> list[str]:
+    rows = await session.execute(select(AllowedEmail.email))
+    return [row[0] for row in rows]
+
+
+@admin_router.post("/allowed-emails")
+async def admin_add_allowed_email(payload: AllowedEmailIn, session: DbSession) -> dict[str, str]:
+    email = payload.email.lower()
+    exists = await session.scalar(select(AllowedEmail).where(AllowedEmail.email == email))
+    if exists:
+        raise HTTPException(status_code=409, detail="Email already on allowed list")
+
+    allowed = AllowedEmail(email=email)
+    session.add(allowed)
+    await session.commit()
+    return {"status": "ok"}
+
+
+@admin_router.delete("/allowed-emails/{email}")
+async def admin_delete_allowed_email(email: str, session: DbSession) -> dict[str, str]:
+    email = email.lower()
+    row = await session.scalar(select(AllowedEmail).where(AllowedEmail.email == email))
+    if not row:
+        raise HTTPException(status_code=404, detail="Email not found on allowed list")
+
+    await session.delete(row)
+    await session.commit()
+    return {"status": "ok"}
+
+
 @admin_router.post("/reset-exchange")
 async def reset_exchange(session: DbSession) -> dict[str, str]:
     """Purge all exchange data: orders, trades, positions, market data, limits, hours, symbols."""
@@ -1168,6 +1226,7 @@ async def reset_users(session: DbSession) -> dict[str, str]:
     await session.execute(delete(UserModel))
     # Optionally clear competitions as well
     await session.execute(delete(CompetitionModel))
+    await session.execute(delete(AllowedEmail))
     await session.commit()
     return {"status": "ok"}
 

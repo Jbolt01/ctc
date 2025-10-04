@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     admin_emails_raw: str | None = Field(default=None, alias="ADMIN_EMAILS")
     seed_on_startup: bool = Field(default=False, alias="SEED_ON_STARTUP")
 
+    # Email registration controls
+    allow_all_emails: bool = Field(default=False, alias="ALLOW_ALL_EMAILS")
+    allowed_emails_raw: str | None = Field(default=None, alias="ALLOWED_EMAILS")
+
     @property
     def admin_emails(self) -> set[str]:
         # Default admins
@@ -32,6 +36,13 @@ class Settings(BaseSettings):
             return default
         parts = [p.strip() for p in self.admin_emails_raw.split(",") if p.strip()]
         return {p.lower() for p in parts} or default
+
+    @property
+    def allowed_emails(self) -> set[str]:
+        if not self.allowed_emails_raw:
+            return set()
+        parts = [p.strip() for p in self.allowed_emails_raw.split(",") if p.strip()]
+        return {p.lower() for p in parts}
 
 
 settings = Settings()

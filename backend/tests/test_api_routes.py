@@ -70,11 +70,14 @@ def test_orders_open_filter_and_market_trades(
     assert any(t["symbol"] == "AAPL" and t["price"] == 100.0 for t in trades)
 
 
-def test_auth_create_team_via_api_key(test_app: TestClient) -> None:
+def test_auth_create_team_via_api_key(test_app: TestClient, admin_key: str) -> None:
     # Register a user to obtain api key
+    email = "another-admin@example.com"
+    res = test_app.post("/api/v1/admin/allowed-emails", headers=_headers(admin_key), json={"email": email})
+    assert res.status_code == 200
     reg = test_app.post(
         "/api/v1/auth/register",
-        json={"openid_sub": "sub-admin", "email": "admin@example.com", "name": "Admin"},
+        json={"openid_sub": "sub-another-admin", "email": email, "name": "Another Admin"},
     )
     assert reg.status_code == 200
     api_key = reg.json()["api_key"]

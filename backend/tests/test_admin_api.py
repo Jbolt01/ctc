@@ -1,43 +1,14 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 from datetime import datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
-
-from src.db.models import APIKey
-from src.db.session import get_db_session
 
 
 def _headers(api_key: str) -> dict[str, str]:
     return {"X-API-Key": api_key}
-
-
-async def _promote_to_admin_from_api_key_value(api_key_value: str) -> None:
-    key_hash = hashlib.sha256(api_key_value.encode()).hexdigest()
-    async for session in get_db_session():
-        row = await session.scalar(select(APIKey).where(APIKey.key_hash == key_hash))
-        assert row is not None, "API key not found to promote"
-        row.is_admin = True
-        session.add(row)
-        await session.commit()
-        break
-
-
-@pytest.fixture()
-def admin_key(test_app: TestClient) -> str:
-    # Register a dedicated admin user and promote their key
-    reg = test_app.post(
-        "/api/v1/auth/register",
-        json={"openid_sub": "admin-sub", "email": "admin@ex.com", "name": "Admin"},
-    )
-    assert reg.status_code == 200
-    key = reg.json()["api_key"]
-    asyncio.run(_promote_to_admin_from_api_key_value(key))
-    return key
 
 
 def test_admin_symbols_crud_and_controls(test_app: TestClient, admin_key: str) -> None:
@@ -237,6 +208,8 @@ def test_admin_resets(test_app: TestClient, admin_key: str) -> None:
     assert ls.json() == []
 
     # Create a user and team; then reset users
+    res = test_app.post("/api/v1/admin/allowed-emails", headers=_headers(admin_key), json={"email": "alpha@example.com"})
+    assert res.status_code == 200
     reg = test_app.post(
         "/api/v1/auth/register",
         json={"openid_sub": "alpha", "email": "alpha@example.com", "name": "Alpha"},

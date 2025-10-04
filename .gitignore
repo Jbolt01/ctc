@@ -30,6 +30,7 @@ package-lock.json
 # Env
 .env
 .env.*.local
+emails.txt
 
 # Alembic
 backend/alembic/versions/*.pyc

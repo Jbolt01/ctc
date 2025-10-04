@@ -9,6 +9,9 @@ import {
   adminSetUserAdmin,
   adminListTeams,
   adminCreateTeam,
+  adminListAllowedEmails,
+  adminAddAllowedEmail,
+  adminDeleteAllowedEmail,
   adminListHours,
   adminListCompetitions,
   adminCreateCompetition,
@@ -22,7 +25,7 @@ import {
   fetchSymbols,
 } from '../../lib/api';
 
-type TabKey = 'users' | 'symbols' | 'teams' | 'hours' | 'competitions' | 'marketdata';
+type TabKey = 'users' | 'symbols' | 'teams' | 'hours' | 'competitions' | 'marketdata' | 'emails';
 
 export default function AdminPage() {
   const router = useRouter();
@@ -109,6 +112,7 @@ export default function AdminPage() {
               ['users', 'Users'],
               ['symbols', 'Symbols'],
               ['teams', 'Teams'],
+              ['emails', 'Emails'],
               // ['hours', 'Trading Hours'],
               // ['competitions', 'Competitions'],
               ['marketdata', 'Market Data'],
@@ -133,6 +137,7 @@ export default function AdminPage() {
           {active === 'users' && <UsersPanel />}
           {active === 'symbols' && <SymbolsPanel />}
           {active === 'teams' && <TeamsPanel />}
+          {active === 'emails' && <EmailsPanel />}
           {/* {active === 'hours' && <HoursPanel />} */}
           {/* {active === 'competitions' && <CompetitionsPanel />} */}
           {active === 'marketdata' && <MarketDataPanel />}
@@ -151,10 +156,93 @@ function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }
   );
 }
 
+function EmailsPanel() {
+  const [emails, setEmails] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [newEmail, setNewEmail] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+
+  const load = async () => {
+    try {
+      setLoading(true);
+      const e = await adminListAllowedEmails();
+      setEmails(e);
+    } catch (e: any) {
+      setError(e?.message || 'Failed to load emails');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  const addEmail = async () => {
+    if (!newEmail) return;
+    try {
+      await adminAddAllowedEmail(newEmail);
+      setNewEmail('');
+      await load();
+    } catch (e: any) {
+      setError(e?.message || 'Failed to add email');
+    }
+  };
+
+  const removeEmail = async (email: string) => {
+    try {
+      await adminDeleteAllowedEmail(email);
+      await load();
+    } catch (e: any) {
+      setError(e?.message || 'Failed to remove email');
+    }
+  };
+
+  const filteredEmails = useMemo(() => {
+    return emails.filter(email => email.toLowerCase().includes(searchTerm.toLowerCase()));
+  }, [emails, searchTerm]);
+
+  if (loading) return <p className="text-gray-400 font-mono">Loading emails…</p>;
+  if (error) return <p className="text-red-400 font-mono">{error}</p>;
+
+  return (
+    <div>
+      <SectionHeader title="Allowed Emails" subtitle="Manage registration whitelist" />
+      <div className="flex gap-2 mb-4">
+        <input
+          className="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white font-mono"
+          placeholder="Search emails..."
+          value={searchTerm}
+          onChange={e => setSearchTerm(e.target.value)}
+        />
+      </div>
+      <div className="flex gap-2 mb-4">
+        <input
+          className="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white font-mono"
+          placeholder="new.email@example.com"
+          value={newEmail}
+          onChange={e => setNewEmail(e.target.value)}
+        />
+        <button onClick={addEmail} className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded font-mono">Add</button>
+      </div>
+      <div className="divide-y divide-gray-800">
+        {filteredEmails.map(email => (
+          <div key={email} className="py-3 flex items-center justify-between">
+            <div className="text-white font-mono">{email}</div>
+            <button onClick={() => removeEmail(email)} className="text-red-400 font-mono hover:underline">Remove</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function UsersPanel() {
   const [users, setUsers] = useState<Array<{ id: string; email: string; name: string; is_admin: boolean }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
     (async () => {
@@ -179,14 +267,29 @@ function UsersPanel() {
     }
   };
 
+  const filteredUsers = useMemo(() => {
+    return users.filter(user =>
+      user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      user.email.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  }, [users, searchTerm]);
+
   if (loading) return <p className="text-gray-400 font-mono">Loading users…</p>;
   if (error) return <p className="text-red-400 font-mono">{error}</p>;
 
   return (
     <div>
       <SectionHeader title="Users" subtitle="Toggle admin access for users" />
+      <div className="mb-4">
+        <input
+          className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white font-mono"
+          placeholder="Search by name or email..."
+          value={searchTerm}
+          onChange={e => setSearchTerm(e.target.value)}
+        />
+      </div>
       <div className="divide-y divide-gray-800">
-        {users.map(u => (
+        {filteredUsers.map(u => (
           <div key={u.id} className="py-3 flex items-center justify-between">
             <div>
               <div className="text-white font-mono font-bold">{u.name}</div>
@@ -355,6 +458,7 @@ function SymbolsPanel() {
 function TeamsPanel() {
   const [teams, setTeams] = useState<Array<{ id: string; name: string; join_code?: string }>>([]);
   const [name, setName] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
   const load = async () => setTeams(await adminListTeams());
   useEffect(() => { load(); }, []);
 
@@ -364,15 +468,27 @@ function TeamsPanel() {
     await load();
   };
 
+  const filteredTeams = useMemo(() => {
+    return teams.filter(team => team.name.toLowerCase().includes(searchTerm.toLowerCase()));
+  }, [teams, searchTerm]);
+
   return (
     <div>
       <SectionHeader title="Teams" subtitle="Create teams and review existing" />
+      <div className="mb-4">
+        <input
+          className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white font-mono"
+          placeholder="Search by name..."
+          value={searchTerm}
+          onChange={e => setSearchTerm(e.target.value)}
+        />
+      </div>
       <div className="flex gap-2 mb-4">
         <input className="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white font-mono" placeholder="Team name" value={name} onChange={e => setName(e.target.value)} />
         <button onClick={create} className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded font-mono">Create</button>
       </div>
       <div className="grid gap-2">
-        {teams.map(t => (
+        {filteredTeams.map(t => (
           <div key={t.id} className="bg-gray-800/50 border border-gray-700 rounded px-3 py-2 text-white font-mono flex items-center justify-between">
             <div className="font-bold">{t.name}</div>
             {t.join_code && (

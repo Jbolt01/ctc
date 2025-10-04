@@ -18,6 +18,15 @@ _ROOT = os.path.dirname(os.path.dirname(__file__))  # backend/
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
+from src.app.config import settings
+
+
+@pytest.fixture(scope="session")
+def event_loop():
+    """Create an instance of the default event loop for each test session."""
+    loop = asyncio.get_event_loop_policy().new_event_loop()
+    yield loop
+    loop.close()
 
 @pytest.fixture()
 def test_app() -> Generator[TestClient, None, None]:
@@ -28,7 +37,6 @@ def test_app() -> Generator[TestClient, None, None]:
     # Lazily import to avoid premature module init
     from src.app import main as app_mod
     from src.app import startup as startup_mod
-    from src.app.config import settings
     from src.db import session as db_session_mod
     from src.db.models import Base
     from src.exchange.manager import ExchangeManager
@@ -87,8 +95,33 @@ def test_app() -> Generator[TestClient, None, None]:
 
 
 @pytest.fixture()
-def api_keys(test_app: TestClient) -> tuple[str, str]:
+def admin_key(test_app: TestClient) -> str:
+    """Register a dedicated admin user and return their API key."""
+    admin_email = "admin@example.com"
+    original_admins = settings.admin_emails_raw
+    settings.admin_emails_raw = admin_email
+
+    # Register a dedicated admin user
+    reg = test_app.post(
+        "/api/v1/auth/register",
+        json={"openid_sub": "admin-sub", "email": admin_email, "name": "Admin"},
+    )
+    assert reg.status_code == 200, reg.text
+    key = reg.json()["api_key"]
+
+    settings.admin_emails_raw = original_admins
+    return key
+
+
+@pytest.fixture()
+def api_keys(test_app: TestClient, admin_key: str) -> tuple[str, str]:
     """Register two users and return their API keys (A, B)."""
+    # Add emails to allowed list before registering
+    res1 = test_app.post("/api/v1/admin/allowed-emails", headers={"X-API-Key": admin_key}, json={"email": "a@example.com"})
+    assert res1.status_code == 200
+    res2 = test_app.post("/api/v1/admin/allowed-emails", headers={"X-API-Key": admin_key}, json={"email": "b@example.com"})
+    assert res2.status_code == 200
+
     # Register User A
     res_a = test_app.post(
         "/api/v1/auth/register",

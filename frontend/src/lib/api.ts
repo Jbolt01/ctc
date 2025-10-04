@@ -183,6 +183,17 @@ export function adminSetUserAdmin(userId: string, is_admin: boolean) {
   return apiPost(`/api/v1/admin/users/${userId}/admin`, { is_admin });
 }
 
+// Admin: Allowed Emails
+export function adminListAllowedEmails() {
+  return apiGet<string[]>(`/api/v1/admin/allowed-emails`);
+}
+export function adminAddAllowedEmail(email: string) {
+  return apiPost(`/api/v1/admin/allowed-emails`, { email });
+}
+export function adminDeleteAllowedEmail(email: string) {
+  return apiDelete(`/api/v1/admin/allowed-emails/${encodeURIComponent(email)}`);
+}
+
 // Admin: Market Data
 export function adminUpsertMarketData(payload: { symbol: string; close: number }) {
   return apiPost(`/api/v1/admin/market-data`, payload);

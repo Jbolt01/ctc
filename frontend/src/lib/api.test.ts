@@ -1,4 +1,4 @@
-import { fetchSymbols, fetchPositions, fetchAllOrders, placeOrder, cancelOrder, fetchTrades, fetchMarketTrades } from './api'
+import { fetchSymbols, fetchPositions, fetchAllOrders, placeOrder, cancelOrder, fetchTrades, fetchMarketTrades, adminListAllowedEmails, adminAddAllowedEmail, adminDeleteAllowedEmail } from './api'
 
 describe('api library', () => {
   beforeEach(() => {
@@ -47,4 +47,18 @@ describe('api library', () => {
     expect(res.url).toContain('/api/v1/orders/id123')
     expect(res.init.method).toBe('DELETE')
   })
+
+  it('handles admin email functions', async () => {
+    const list = (await adminListAllowedEmails()) as any;
+    expect(list.url).toContain('/api/v1/admin/allowed-emails');
+
+    const add = (await adminAddAllowedEmail('test@example.com')) as any;
+    expect(add.url).toContain('/api/v1/admin/allowed-emails');
+    expect(add.init.method).toBe('POST');
+    expect(add.init.body).toBe(JSON.stringify({ email: 'test@example.com' }));
+
+    const del = (await adminDeleteAllowedEmail('test@example.com')) as any;
+    expect(del.url).toContain('/api/v1/admin/allowed-emails/test%40example.com');
+    expect(del.init.method).toBe('DELETE');
+  });
 })

@@ -71,7 +71,11 @@ export default function SetupPage() {
       localStorage.removeItem('pendingRegistration');
       router.push('/trading/equities');
     } catch (e: any) {
-      setError(e?.message || 'Failed to complete setup');
+      if (e.message.includes("not allowed to register")) {
+        setError("This email address is not approved for registration. Please contact an administrator.");
+      } else {
+        setError(e?.message || 'Failed to complete setup');
+      }
     } finally {
       setLoading(false);
     }

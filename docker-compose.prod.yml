@@ -41,6 +41,8 @@ services:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-trading_user}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB:-trading_competition}
       REDIS_URL: redis://redis:6379
       ALLOW_ANY_API_KEY: ${ALLOW_ANY_API_KEY:-false}
+      ALLOW_ALL_EMAILS: ${ALLOW_ALL_EMAILS:-false}
+      ALLOWED_EMAILS: ${ALLOWED_EMAILS}
     restart: unless-stopped
     networks:
       - app-network

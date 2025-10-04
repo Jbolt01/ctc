@@ -8,7 +8,7 @@ from src.app.config import settings
 
 
 def test_register_and_login_with_id_token_monkeypatch(
-    test_app: TestClient, monkeypatch: Any
+    test_app: TestClient, monkeypatch: Any, admin_key: str
 ) -> None:
     client = test_app
 
@@ -22,6 +22,10 @@ def test_register_and_login_with_id_token_monkeypatch(
         return claims
 
     monkeypatch.setattr("src.app.main._verify_google_id_token", fake_verify)
+
+    # Add email to allowed list
+    res = test_app.post("/api/v1/admin/allowed-emails", headers={"X-API-Key": admin_key}, json={"email": claims["email"]})
+    assert res.status_code == 200
 
     # Register
     r = client.post(
@@ -52,6 +56,7 @@ def test_login_dev_without_id_token(
     client = test_app
     allow_backup = settings.allow_any_api_key
     settings.allow_any_api_key = True
+    settings.allow_all_emails = True
 
     user = {"openid_sub": "dev-sub", "email": "dev@example.com", "name": "Dev"}
 
@@ -62,3 +67,4 @@ def test_login_dev_without_id_token(
     assert r2.status_code == 200
 
     settings.allow_any_api_key = allow_backup
+    settings.allow_all_emails = False
