@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import math
+from dataclasses import replace
 from typing import Literal
 
 import hypothesis.strategies as st
@@ -10,15 +10,16 @@ from src.exchange.engine import MatchingEngine, SimpleOrder
 
 
 def best_bid_ask(engine: MatchingEngine) -> tuple[float | None, float | None]:
-    bid = max((o.price for o in engine.bids if o.price is not None), default=None)
-    ask = min((o.price for o in engine.asks if o.price is not None), default=None)
+    bids, asks = engine.get_orderbook_levels(depth=1)
+    bid = bids[0][0] if bids else None
+    ask = asks[0][0] if asks else None
     return bid, ask
 
 
 def is_sorted_books(engine: MatchingEngine) -> bool:
     # Bids descending, Asks ascending
-    bprices = [o.price for o in engine.bids if o.price is not None]
-    aprices = [o.price for o in engine.asks if o.price is not None]
+    bprices = [price for price, _ in engine.get_orderbook_levels(depth=50)[0]]
+    aprices = [price for price, _ in engine.get_orderbook_levels(depth=50)[1]]
     return bprices == sorted(bprices, reverse=True) and aprices == sorted(aprices)
 
 
@@ -52,22 +53,21 @@ def order_strategy():
 def test_engine_no_crossing_and_sorted(orders: list[SimpleOrder]) -> None:
     engine = MatchingEngine()
     for o in orders:
-        engine.add_order(SimpleOrder(**o.__dict__))
+        engine.add_order(replace(o))
 
         # Invariants after each add
         # 1) No market orders rest in the book
-        assert all(x.price is not None and not math.isnan(x.price) for x in engine.bids)
-        assert all(x.price is not None and not math.isnan(x.price) for x in engine.asks)
+        bids, asks = engine.get_orderbook_levels(depth=50)
+        assert all(price > 0 for price, _ in bids)
+        assert all(price > 0 for price, _ in asks)
 
         # 2) Books sorted properly
         assert is_sorted_books(engine)
 
         # 3) No crossing for different teams: if crossing remains, it should be self-cross only
         bid, ask = best_bid_ask(engine)
-        if bid is not None and ask is not None and bid >= ask:
-            # Allow crossing only if top-of-book is self-cross (STP cancel-passive)
-            assert engine.bids and engine.asks
-            assert engine.bids[0].team_id == engine.asks[0].team_id
+        if bid is not None and ask is not None:
+            assert bid < ask
 
 
 @settings(deadline=None, max_examples=200)
@@ -137,7 +137,8 @@ def test_stp_prevents_resting_self_cross(
     if bid is not None and ask is not None:
         assert bid < ask
     # No market orders in book
-    assert all(o.price is not None for o in engine.bids + engine.asks)
+    bids, asks = engine.get_orderbook_levels(depth=20)
+    assert all(price > 0 for price, _ in bids + asks)
 
 
 @settings(deadline=None, max_examples=50)
@@ -149,19 +150,32 @@ def test_stp_prevents_resting_self_cross(
 def test_orderbook_levels_sum(n_buys: int, n_sells: int, ps: float) -> None:
     # Sum of quantities at each price in get_orderbook_levels matches the actual book aggregation
     engine = MatchingEngine()
+    buy_orders: list[SimpleOrder] = []
+    sell_orders: list[SimpleOrder] = []
     for i in range(n_buys):
-        engine.add_order(SimpleOrder(f"b{i}", "buy", 1 + (i % 3), ps + (i % 3), "A"))
+        order = SimpleOrder(f"b{i}", "buy", 1 + (i % 3), ps + (i % 3), "A")
+        engine.add_order(order)
+        if order.price is not None and order.quantity > 0:
+            buy_orders.append(order)
     for j in range(n_sells):
-        engine.add_order(SimpleOrder(f"s{j}", "sell", 1 + (j % 2), ps + (j % 3), "B"))
+        order = SimpleOrder(f"s{j}", "sell", 1 + (j % 2), ps + (j % 3), "B")
+        engine.add_order(order)
+        if order.price is not None and order.quantity > 0:
+            sell_orders.append(order)
 
-    bids, asks = engine.get_orderbook_levels(depth=10)
-    # Re-aggregate directly
-    agg_bids = {}
-    for o in engine.bids:
-        agg_bids[o.price] = agg_bids.get(o.price, 0) + o.quantity
-    agg_asks = {}
-    for o in engine.asks:
-        agg_asks[o.price] = agg_asks.get(o.price, 0) + o.quantity
+    bids, asks = engine.get_orderbook_levels(depth=50)
+
+    agg_bids: dict[float, int] = {}
+    for order in buy_orders:
+        if order.price is None or order.quantity <= 0:
+            continue
+        agg_bids[order.price] = agg_bids.get(order.price, 0) + order.quantity
+
+    agg_asks: dict[float, int] = {}
+    for order in sell_orders:
+        if order.price is None or order.quantity <= 0:
+            continue
+        agg_asks[order.price] = agg_asks.get(order.price, 0) + order.quantity
 
     for price_, qty_ in bids:
         assert qty_ == agg_bids.get(price_, 0)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from src.exchange.engine import MatchingEngine, SimpleOrder
+from src.exchange.engine import MatchingEngine, SimpleCancel, SimpleOrder, SimpleTrade
 
 
 def mk_order(order_id: str, side: str, qty: int, price: float | None, team: str) -> SimpleOrder:
@@ -12,8 +12,10 @@ def mk_order(order_id: str, side: str, qty: int, price: float | None, team: str)
 def test_market_buy_partial_fill_and_cancel_remainder() -> None:
     engine = MatchingEngine()
     # Seed asks: 50@100 (team B), 100@101 (team C)
-    engine.add_order(mk_order("S1", "sell", 50, 100.0, "B"))
-    engine.add_order(mk_order("S2", "sell", 100, 101.0, "C"))
+    ask1 = mk_order("S1", "sell", 50, 100.0, "B")
+    ask2 = mk_order("S2", "sell", 100, 101.0, "C")
+    engine.add_order(ask1)
+    engine.add_order(ask2)
 
     # Market buy for 120 should take 50@100 and 70@101, leave 30@101
     trades, cancels = engine.add_order(mk_order("M1", "buy", 120, None, "A"))
@@ -25,31 +27,35 @@ def test_market_buy_partial_fill_and_cancel_remainder() -> None:
     assert trades[1].price == 101.0
 
     # Incoming market order should not rest; asks should have remaining 30@101
-    assert len(engine.bids) == 0
-    assert len(engine.asks) == 1
-    assert engine.asks[0].order_id == "S2"
-    assert engine.asks[0].quantity == 30
+    assert ask2.quantity == 30
+    bids, asks = engine.get_orderbook_levels()
+    assert bids == []
+    assert asks == [(101.0, 30)]
 
 
 def test_market_buy_insufficient_liquidity_cancels_remainder() -> None:
     engine = MatchingEngine()
     # Seed asks: 50@100 (team B)
-    engine.add_order(mk_order("S3", "sell", 50, 100.0, "B"))
+    ask = mk_order("S3", "sell", 50, 100.0, "B")
+    engine.add_order(ask)
     # Market buy for 80 should fill 50 and cancel remainder 30 (no rest)
     trades, cancels = engine.add_order(mk_order("M2", "buy", 80, None, "A"))
     assert len(cancels) == 0
     assert len(trades) == 1
     assert trades[0].quantity == 50
     assert trades[0].price == 100.0
-    assert len(engine.asks) == 0
-    assert len(engine.bids) == 0
+    bids, asks = engine.get_orderbook_levels()
+    assert bids == []
+    assert asks == []
 
 
 def test_stp_buy_cancels_self_then_trades_others_and_rests_remainder() -> None:
     engine = MatchingEngine()
     # Seed asks at same price: self 40@100 (team A), other 60@100 (team B)
-    engine.add_order(mk_order("S4", "sell", 40, 100.0, "A"))
-    engine.add_order(mk_order("S5", "sell", 60, 100.0, "B"))
+    self_ask = mk_order("S4", "sell", 40, 100.0, "A")
+    other_ask = mk_order("S5", "sell", 60, 100.0, "B")
+    engine.add_order(self_ask)
+    engine.add_order(other_ask)
 
     # Incoming buy limit 70@110 from team A
     trades, cancels = engine.add_order(mk_order("L1", "buy", 70, 110.0, "A"))
@@ -58,24 +64,26 @@ def test_stp_buy_cancels_self_then_trades_others_and_rests_remainder() -> None:
     assert len(cancels) == 1
     assert cancels[0].order_id == "S4"
     assert cancels[0].quantity == 40
+    assert self_ask.quantity == 0
 
     assert len(trades) == 1
     assert trades[0].quantity == 60
     assert trades[0].price == 100.0
+    assert other_ask.quantity == 0
 
     # Book state: no asks left; one bid with remaining 10 at 110 from L1
-    assert len(engine.asks) == 0
-    assert len(engine.bids) == 1
-    assert engine.bids[0].order_id == "L1"
-    assert engine.bids[0].quantity == 10
-    assert engine.bids[0].price == 110.0
+    bids, asks = engine.get_orderbook_levels()
+    assert asks == []
+    assert bids == [(110.0, 10)]
 
 
 def test_stp_sell_cancels_self_then_trades_others_and_rests_remainder() -> None:
     engine = MatchingEngine()
     # Seed bids at same price: self 30@100 (team A), other 50@100 (team B)
-    engine.add_order(mk_order("B1", "buy", 30, 100.0, "A"))
-    engine.add_order(mk_order("B2", "buy", 50, 100.0, "B"))
+    self_bid = mk_order("B1", "buy", 30, 100.0, "A")
+    other_bid = mk_order("B2", "buy", 50, 100.0, "B")
+    engine.add_order(self_bid)
+    engine.add_order(other_bid)
 
     # Incoming sell limit 70@90 from team A
     trades, cancels = engine.add_order(mk_order("S6", "sell", 70, 90.0, "A"))
@@ -84,23 +92,24 @@ def test_stp_sell_cancels_self_then_trades_others_and_rests_remainder() -> None:
     assert len(cancels) == 1
     assert cancels[0].order_id == "B1"
     assert cancels[0].quantity == 30
+    assert self_bid.quantity == 0
 
     assert len(trades) == 1
     assert trades[0].quantity == 50
     assert trades[0].price == 100.0
+    assert other_bid.quantity == 0
 
     # Book state: no bids left; one ask with remaining 20 at 90 from S6
-    assert len(engine.bids) == 0
-    assert len(engine.asks) == 1
-    assert engine.asks[0].order_id == "S6"
-    assert engine.asks[0].quantity == 20
-    assert engine.asks[0].price == 90.0
+    bids, asks = engine.get_orderbook_levels()
+    assert bids == []
+    assert asks == [(90.0, 20)]
 
 
 def test_stp_only_self_orders_market_buy_cancels_without_trade() -> None:
     engine = MatchingEngine()
     # Seed only self ask 100@100 (team A)
-    engine.add_order(mk_order("S7", "sell", 100, 100.0, "A"))
+    ask = mk_order("S7", "sell", 100, 100.0, "A")
+    engine.add_order(ask)
     # Incoming market buy 30 from same team should cancel 30 from S7 and not trade
     trades, cancels = engine.add_order(mk_order("M3", "buy", 30, None, "A"))
 
@@ -110,10 +119,60 @@ def test_stp_only_self_orders_market_buy_cancels_without_trade() -> None:
     assert cancels[0].quantity == 30
 
     # Book state: S7 reduced to 70; no bids added (market orders don't rest)
-    assert len(engine.bids) == 0
-    assert len(engine.asks) == 1
-    assert engine.asks[0].order_id == "S7"
-    assert engine.asks[0].quantity == 70
+    assert ask.quantity == 70
+    bids, asks = engine.get_orderbook_levels()
+    assert bids == []
+    assert asks == [(100.0, 70)]
+
+
+def test_stp_partial_cancel_leaves_remainder_and_trades_other_liquidity() -> None:
+    engine = MatchingEngine()
+    self_ask = mk_order("S8", "sell", 100, 100.0, "teamA")
+    other_ask = mk_order("S9", "sell", 80, 101.0, "teamB")
+    engine.add_order(self_ask)
+    engine.add_order(other_ask)
+
+    trades, cancels = engine.add_order(mk_order("L2", "buy", 30, 150.0, "teamA"))
+
+    assert cancels == [SimpleCancel(order_id="S8", quantity=30)]
+    assert self_ask.quantity == 70
+    assert len(trades) == 1
+    assert trades[0].buyer_order_id == "L2"
+    assert trades[0].seller_order_id == "S9"
+    assert trades[0].quantity == 30
+    assert trades[0].price == 101.0
+
+    bids, asks = engine.get_orderbook_levels()
+    assert bids == []
+    assert (100.0, 70) in asks
+    assert (101.0, 50) in asks
+
+
+def test_decimal_price_precision_is_preserved() -> None:
+    engine = MatchingEngine()
+    ask = mk_order("D1", "sell", 10, 101.123456, "A")
+    engine.add_order(ask)
+    trade_order = mk_order("D2", "buy", 10, 101.123456, "B")
+    trades, cancels = engine.add_order(trade_order)
+
+    assert cancels == []
+    assert len(trades) == 1
+    assert trades[0] == SimpleTrade(
+        buyer_order_id="D2",
+        seller_order_id="D1",
+        quantity=10,
+        price=101.123456,
+    )
+
+
+def test_remove_order_cancels_resting_liquidity() -> None:
+    engine = MatchingEngine()
+    order = mk_order("R1", "sell", 25, 105.0, "teamX")
+    engine.add_order(order)
+    assert engine.remove_order("R1")
+    bids, asks = engine.get_orderbook_levels()
+    assert bids == []
+    assert asks == []
 
 
 def test_manager_load_clears_and_prevents_duplicate_trade() -> None:
